@@ -1,0 +1,6 @@
+{
+  "name": "Penghitung Jarak Udara",
+  "description": "Aplikasi untuk menghitung jarak udara lurus antara dua lokasi dengan tampilan citra satelit.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
