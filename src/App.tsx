@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap, Circle, CircleMarker, Tooltip } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap, useMapEvents, Circle, CircleMarker, Tooltip } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { Search, MapPin, Navigation, Loader2, Layers, Map as MapIcon, Route, Radar } from 'lucide-react';
@@ -166,7 +166,9 @@ function LocationInput({
   onChange, 
   onSelect, 
   dotColor,
-  isDark
+  isDark,
+  onMapClickRequest,
+  isSelectingMapLocation
 }: { 
   id: string, 
   label: string, 
@@ -175,7 +177,9 @@ function LocationInput({
   onChange: (val: string) => void,
   onSelect: (coord: Coordinate | null) => void,
   dotColor: string,
-  isDark: boolean
+  isDark: boolean;
+  onMapClickRequest?: () => void;
+  isSelectingMapLocation?: boolean;
 }) {
   const [suggestions, setSuggestions] = useState<Coordinate[]>([]);
   const [loading, setLoading] = useState(false);
@@ -321,8 +325,21 @@ function LocationInput({
 
   return (
     <div className="relative" ref={wrapperRef}>
-      <label htmlFor={id} className={cn("text-[10px] uppercase font-bold mb-2 block", isDark ? "text-slate-500" : "text-slate-500")}>{label}</label>
-      <div className="relative">
+      <label htmlFor={id} className={cn("text-[10px] uppercase font-bold mb-2 flex justify-between items-center", isDark ? "text-slate-500" : "text-slate-500")}>
+        <span>{label}</span>
+        {onMapClickRequest && (
+          <button 
+            type="button" 
+            title="Pilih Titik di Peta"
+            onClick={onMapClickRequest} 
+            className={cn("flex items-center gap-1 px-2 py-0.5 rounded-full transition-colors", isSelectingMapLocation ? "bg-blue-500 text-white" : (isDark ? "bg-slate-800 hover:bg-slate-700 text-slate-300" : "bg-slate-200 hover:bg-slate-300 text-slate-700"))}
+          >
+            <MapPin className="w-3 h-3" />
+            <span className="text-[9px]">{isSelectingMapLocation ? "Pilih di Peta..." : "Pilih Peta"}</span>
+          </button>
+        )}
+      </label>
+      <div className="relative group">
         <input
           type="text"
           id={id}
@@ -337,7 +354,8 @@ function LocationInput({
           placeholder={placeholder}
           className={cn(
             "w-full rounded-xl py-3 px-4 text-sm focus:border-blue-500 outline-none transition-colors border",
-            isDark ? "bg-black/40 border-white/10 text-slate-200" : "bg-white border-slate-300 text-slate-900 shadow-sm"
+            isDark ? "bg-black/40 border-white/10 text-slate-200" : "bg-white border-slate-300 text-slate-900 shadow-sm",
+            isSelectingMapLocation && "border-blue-500 shadow-[0_0_0_2px_rgba(59,130,246,0.3)] bg-blue-500/5"
           )}
           required
           autoComplete="off"
@@ -395,6 +413,20 @@ function MapUpdater({ points }: { points: Coordinate[] }) {
   return null;
 }
 
+function MapClickHandler({ isActive, onLocationSelected }: { isActive: boolean, onLocationSelected: (coord: Coordinate) => void }) {
+  useMapEvents({
+    click(e) {
+      if (!isActive) return;
+      onLocationSelected({
+        lat: e.latlng.lat,
+        lon: e.latlng.lng,
+        display_name: `Titik Pilihan Peta (${e.latlng.lat.toFixed(4)}, ${e.latlng.lng.toFixed(4)})`
+      });
+    }
+  });
+  return null;
+}
+
 type HistoryItem = {
   id: string;
   timestamp: number;
@@ -411,6 +443,8 @@ export default function App() {
   const [selectedLoc1, setSelectedLoc1] = useState<Coordinate | null>(null);
   const [selectedLoc2, setSelectedLoc2] = useState<Coordinate | null>(null);
   
+  const [selectingTarget, setSelectingTarget] = useState<'loc1' | 'loc2' | null>(null);
+
   const [points, setPoints] = useState<Coordinate[]>([]);
   const [distanceKm, setDistanceKm] = useState<number | null>(null);
   
@@ -729,6 +763,8 @@ export default function App() {
                         onSelect={setSelectedLoc1}
                         dotColor="bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]"
                         isDark={isDark}
+                        onMapClickRequest={() => setSelectingTarget(selectingTarget === 'loc1' ? null : 'loc1')}
+                        isSelectingMapLocation={selectingTarget === 'loc1'}
                       />
 
                       <div className="flex justify-center py-2">
@@ -748,6 +784,8 @@ export default function App() {
                         onSelect={setSelectedLoc2}
                         dotColor="bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]"
                         isDark={isDark}
+                        onMapClickRequest={() => setSelectingTarget(selectingTarget === 'loc2' ? null : 'loc2')}
+                        isSelectingMapLocation={selectingTarget === 'loc2'}
                       />
                     </div>
 
@@ -783,6 +821,8 @@ export default function App() {
                       onSelect={setSelectedLoc1}
                       dotColor="bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]"
                       isDark={isDark}
+                      onMapClickRequest={() => setSelectingTarget(selectingTarget === 'loc1' ? null : 'loc1')}
+                      isSelectingMapLocation={selectingTarget === 'loc1'}
                     />
 
                     <div className="mt-4">
@@ -905,11 +945,20 @@ export default function App() {
               </div>
             )}
 
+            {selectingTarget !== null && (
+              <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 pointer-events-none animate-bounce">
+                <div className="bg-blue-600 text-white px-4 py-2 rounded-full shadow-lg border border-blue-400 font-semibold flex items-center gap-2 items-center text-sm">
+                  <MapPin className="w-4 h-4 animate-pulse" />
+                  Klik pada peta untuk memilih lokasi...
+                </div>
+              </div>
+            )}
+
             <MapContainer 
               center={[-2.5489, 118.0149]} // Center of Indonesia
               zoom={5} 
               scrollWheelZoom={true} 
-              className="w-full h-full z-0!"
+              className={cn("w-full h-full z-0!", selectingTarget !== null ? "cursor-crosshair" : "")}
               zoomControl={false}
               style={{ background: 'transparent' }}
             >
@@ -988,6 +1037,19 @@ export default function App() {
               ))}
 
               <MapUpdater points={points} />
+              <MapClickHandler 
+                isActive={selectingTarget !== null} 
+                onLocationSelected={(coord) => {
+                  if (selectingTarget === 'loc1') {
+                    setSelectedLoc1(coord);
+                    setLoc1(coord.display_name);
+                  } else if (selectingTarget === 'loc2') {
+                    setSelectedLoc2(coord);
+                    setLoc2(coord.display_name);
+                  }
+                  setSelectingTarget(null);
+                }} 
+              />
             </MapContainer>
           </div>
         </main>
