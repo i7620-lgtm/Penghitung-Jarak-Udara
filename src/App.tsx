@@ -185,12 +185,18 @@ function LocationInput({
   const [loading, setLoading] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const preventReopen = useRef(false);
 
   const debouncedValue = useDebounce(value, 500);
 
   useEffect(() => {
     if (!debouncedValue || debouncedValue.length < 3) {
       setSuggestions([]);
+      return;
+    }
+
+    if (preventReopen.current) {
+      preventReopen.current = false;
       return;
     }
 
@@ -345,6 +351,7 @@ function LocationInput({
           id={id}
           value={value}
           onChange={(e) => {
+            preventReopen.current = false;
             onChange(e.target.value);
             onSelect(null);
           }}
@@ -378,6 +385,7 @@ function LocationInput({
                 isDark ? "hover:bg-slate-700 border-white/5 text-slate-300" : "hover:bg-slate-100 border-slate-100 text-slate-700 rounded-none"
               )}
               onClick={() => {
+                preventReopen.current = true;
                 onChange(sug.display_name);
                 onSelect(sug);
                 setIsOpen(false);
@@ -722,7 +730,7 @@ export default function App() {
         <main className="flex-1 flex flex-col p-4 lg:p-8 gap-6 relative z-10 max-w-7xl mx-auto w-full">
           
           {/* Top Control Panel */}
-          <div className="w-full flex flex-col lg:flex-row lg:flex-wrap items-stretch lg:items-start gap-6 shrink-0">
+          <div id="control-panel" className="w-full flex flex-col lg:flex-row lg:flex-wrap items-stretch lg:items-start gap-6 shrink-0">
             <div className={cn("flex-1 min-w-[320px] rounded-2xl p-6 backdrop-blur-xl shrink-0 flex flex-col border transition-colors", isDark ? "bg-slate-900/50 border-white/10" : "bg-white border-slate-200 shadow-sm")}>
               
               {/* Custom Tabs Navigation */}
@@ -763,7 +771,11 @@ export default function App() {
                         onSelect={setSelectedLoc1}
                         dotColor="bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]"
                         isDark={isDark}
-                        onMapClickRequest={() => setSelectingTarget(selectingTarget === 'loc1' ? null : 'loc1')}
+                        onMapClickRequest={() => {
+                          const newTarget = selectingTarget === 'loc1' ? null : 'loc1';
+                          setSelectingTarget(newTarget);
+                          if (newTarget) document.getElementById('map-view')?.scrollIntoView({ behavior: 'smooth' });
+                        }}
                         isSelectingMapLocation={selectingTarget === 'loc1'}
                       />
 
@@ -784,7 +796,11 @@ export default function App() {
                         onSelect={setSelectedLoc2}
                         dotColor="bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]"
                         isDark={isDark}
-                        onMapClickRequest={() => setSelectingTarget(selectingTarget === 'loc2' ? null : 'loc2')}
+                        onMapClickRequest={() => {
+                          const newTarget = selectingTarget === 'loc2' ? null : 'loc2';
+                          setSelectingTarget(newTarget);
+                          if (newTarget) document.getElementById('map-view')?.scrollIntoView({ behavior: 'smooth' });
+                        }}
                         isSelectingMapLocation={selectingTarget === 'loc2'}
                       />
                     </div>
@@ -821,7 +837,11 @@ export default function App() {
                       onSelect={setSelectedLoc1}
                       dotColor="bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]"
                       isDark={isDark}
-                      onMapClickRequest={() => setSelectingTarget(selectingTarget === 'loc1' ? null : 'loc1')}
+                      onMapClickRequest={() => {
+                        const newTarget = selectingTarget === 'loc1' ? null : 'loc1';
+                        setSelectingTarget(newTarget);
+                        if (newTarget) document.getElementById('map-view')?.scrollIntoView({ behavior: 'smooth' });
+                      }}
                       isSelectingMapLocation={selectingTarget === 'loc1'}
                     />
 
@@ -903,7 +923,7 @@ export default function App() {
           </div>
 
           {/* Map Visualization Area */}
-          <div className={cn("w-full rounded-3xl relative overflow-hidden h-[75vh] md:h-[85vh] shrink-0 shadow-2xl flex flex-col group border", isDark ? "bg-black/40 border-white/10" : "bg-slate-200 border-slate-300")}>
+          <div id="map-view" className={cn("w-full rounded-3xl relative overflow-hidden h-[75vh] md:h-[85vh] shrink-0 shadow-2xl flex flex-col group border", isDark ? "bg-black/40 border-white/10" : "bg-slate-200 border-slate-300")}>
             
             {/* Map Controls overlays */}
             <div className={cn("absolute bottom-6 right-6 z-[400] flex flex-col gap-2 shadow-lg rounded-xl overflow-hidden backdrop-blur-md border", isDark ? "bg-slate-900/80 border-white/10" : "bg-white/90 border-slate-200")}>
@@ -946,11 +966,45 @@ export default function App() {
             )}
 
             {selectingTarget !== null && (
-              <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 pointer-events-none animate-bounce">
+              <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[400] pointer-events-none animate-bounce">
                 <div className="bg-blue-600 text-white px-4 py-2 rounded-full shadow-lg border border-blue-400 font-semibold flex items-center gap-2 items-center text-sm">
                   <MapPin className="w-4 h-4 animate-pulse" />
                   Klik pada peta untuk memilih lokasi...
                 </div>
+              </div>
+            )}
+
+            {selectingTarget === null && activeTab === 'distance' && (
+              <div className="absolute top-4 right-4 z-[400] flex gap-2 transition-opacity">
+                <button
+                  type="button"
+                  title="Pilih Titik Keberangkatan dari Peta"
+                  onClick={() => setSelectingTarget('loc1')}
+                  className={cn("p-3 rounded-full shadow-xl flex items-center justify-center transition-transform hover:scale-105 active:scale-95 border", isDark ? "bg-slate-900 border-red-500/30 hover:bg-slate-800" : "bg-white border-red-200 hover:bg-slate-50")}
+                >
+                  <MapPin className="w-5 h-5 text-red-500 shrink-0" />
+                </button>
+                <button
+                  type="button"
+                  title="Pilih Titik Tujuan dari Peta"
+                  onClick={() => setSelectingTarget('loc2')}
+                  className={cn("p-3 rounded-full shadow-xl flex items-center justify-center transition-transform hover:scale-105 active:scale-95 border", isDark ? "bg-slate-900 border-emerald-500/30 hover:bg-slate-800" : "bg-white border-emerald-200 hover:bg-slate-50")}
+                >
+                  <MapPin className="w-5 h-5 text-emerald-500 shrink-0" />
+                </button>
+              </div>
+            )}
+
+            {selectingTarget === null && activeTab === 'radius' && (
+              <div className="absolute top-4 right-4 z-[400] flex gap-2 transition-opacity">
+                <button
+                  type="button"
+                  title="Tentukan Titik Acuan Radius dari Peta"
+                  onClick={() => setSelectingTarget('loc1')}
+                  className={cn("p-3 rounded-full shadow-xl flex items-center justify-center transition-transform hover:scale-105 active:scale-95 border", isDark ? "bg-slate-900 border-red-500/30 hover:bg-slate-800" : "bg-white border-red-200 hover:bg-slate-50")}
+                >
+                  <Radar className="w-5 h-5 text-red-500 shrink-0" />
+                </button>
               </div>
             )}
 
@@ -1048,6 +1102,7 @@ export default function App() {
                     setLoc2(coord.display_name);
                   }
                   setSelectingTarget(null);
+                  setTimeout(() => document.getElementById('control-panel')?.scrollIntoView({ behavior: 'smooth' }), 100);
                 }} 
               />
             </MapContainer>
