@@ -48,12 +48,15 @@ interface PlaceNode {
 }
 
 const placeTypeMap: Record<string, string> = {
-  city: 'Kota',
+  province: 'Provinsi',
+  city: 'Kota / Kabupaten',
   town: 'Kecamatan / Kota',
   village: 'Desa / Kelurahan',
   suburb: 'Area / Distrik',
-  neighbourhood: 'Lingkungan',
-  hamlet: 'Dusun / Banjar'
+  neighbourhood: 'Lingkungan / RW',
+  hamlet: 'Dusun / Banjar',
+  boundary: 'Batas Wilayah',
+  place: 'Wilayah'
 };
 
 const INTERNAL_LOCATIONS: Coordinate[] = [
@@ -579,23 +582,20 @@ export default function App() {
   };
 
   const handleSearchRadius = async () => {
-    if (!points[0] && !loc1) return;
+    if (!loc1.trim()) return;
     
     setLoadingPlaces(true);
     setShowRadius(true);
     setNearbyPlaces([]);
-    let origin = points[0];
 
     try {
-      if (!origin && loc1) {
-        origin = selectedLoc1?.display_name === loc1 ? selectedLoc1 : await geocode(loc1);
-        setPoints([origin]);
-      }
-
+      const origin = selectedLoc1?.display_name === loc1 ? selectedLoc1 : await geocode(loc1);
       if (!origin) throw new Error("Titik Acuan tidak ditemukan");
+      
+      setPoints([origin]);
 
       const radMeters = distanceUnit === 'km' ? radiusValue * 1000 : radiusValue;
-      const query = `[out:json][timeout:25];nwr(around:${radMeters},${origin.lat},${origin.lon})["place"];out center;`;
+      const query = `[out:json][timeout:25];(nwr(around:${radMeters},${origin.lat},${origin.lon})["place"];nwr(around:${radMeters},${origin.lat},${origin.lon})["boundary"="administrative"]["admin_level"];);out center;`;
       const res = await fetch(`https://overpass-api.de/api/interpreter`, {
         method: 'POST',
         body: `data=${encodeURIComponent(query)}`
@@ -608,17 +608,38 @@ export default function App() {
           const lat = parseFloat(e.center ? e.center.lat : e.lat);
           const lon = parseFloat(e.center ? e.center.lon : e.lon);
           const dist = calculateDistance(origin.lat, origin.lon, lat, lon);
+          let typeLabel = e.tags.place;
+          if (!typeLabel && e.tags.boundary === 'administrative' && e.tags.admin_level) {
+             const al = parseInt(e.tags.admin_level);
+             if (al === 4) typeLabel = 'province';
+             else if (al === 5 || al === 6) typeLabel = 'city';
+             else if (al === 7) typeLabel = 'town';
+             else if (al === 8) typeLabel = 'village';
+             else if (al >= 9) typeLabel = 'neighbourhood';
+             else typeLabel = 'boundary';
+          }
           return {
             id: e.id,
             lat: lat,
             lon: lon,
             name: e.tags.name,
-            type: e.tags.place || 'place',
+            type: typeLabel || 'place',
             distanceKm: dist
           };
         });
       
-      const sortedPlaces = places.sort((a: any, b: any) => (a.distanceKm || 0) - (b.distanceKm || 0));
+      const uniquePlacesMap = new Map();
+      places.forEach((p: any) => {
+        if (!uniquePlacesMap.has(p.name) || p.distanceKm < uniquePlacesMap.get(p.name).distanceKm) {
+          uniquePlacesMap.set(p.name, p);
+        }
+      });
+      const uniquePlaces = Array.from(uniquePlacesMap.values());
+      const radKm = radMeters / 1000;
+      
+      const validPlaces = uniquePlaces.filter((p: any) => p.distanceKm <= radKm);
+
+      const sortedPlaces = validPlaces.sort((a: any, b: any) => (a.distanceKm || 0) - (b.distanceKm || 0)).slice(0, 120);
       setNearbyPlaces(sortedPlaces);
       
       setHistory(prev => [{
@@ -885,9 +906,11 @@ export default function App() {
                       </button>
                     </div>
 
-                    {nearbyPlaces.length > 0 && (
-                      <div className={cn("text-[11px] p-2.5 rounded-lg text-center font-medium border", isDark ? "text-emerald-400 bg-emerald-950/40 border-emerald-900/60" : "text-emerald-700 bg-emerald-50 border-emerald-200")}>
-                         Ditemukan {nearbyPlaces.length} wilayah dalam radius {radiusValue} {distanceUnit.toUpperCase()}.
+                    {showRadius && !loadingPlaces && !error && (
+                      <div className={cn("text-[11px] p-2.5 rounded-lg text-center font-medium border", isDark ? (nearbyPlaces.length > 0 ? "text-emerald-400 bg-emerald-950/40 border-emerald-900/60" : "text-amber-400 bg-amber-950/40 border-amber-900/60") : (nearbyPlaces.length > 0 ? "text-emerald-700 bg-emerald-50 border-emerald-200" : "text-amber-700 bg-amber-50 border-amber-200"))}>
+                         {nearbyPlaces.length > 0 
+                           ? `Ditemukan ${nearbyPlaces.length} wilayah dalam radius ${radiusValue.toLocaleString("id-ID")} ${distanceUnit.toUpperCase()}.`
+                           : `Tidak ada daerah/wilayah yang teridentifikasi secara presisi dalam radius ${radiusValue.toLocaleString("id-ID")} ${distanceUnit.toUpperCase()}. Coba merubah titik atau perbesar radius pengamatan.`}
                       </div>
                     )}
                   </div>
