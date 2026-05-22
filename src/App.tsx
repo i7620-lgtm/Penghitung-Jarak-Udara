@@ -666,9 +666,7 @@ export default function App() {
       });
       const uniquePlaces = Array.from(uniquePlacesMap.values());
       
-      // Allow a 15% tolerance buffer for matching bounding boxes returning centers just outside
-      // Overpass 'around' often yields items whose bounds intersect but center is outside
-      const validPlaces = uniquePlaces.filter((p: any) => p.distanceKm <= radKm * 1.15);
+      const validPlaces = uniquePlaces.filter((p: any) => p.distanceKm <= radKm);
 
       const sortedPlaces = validPlaces.sort((a: any, b: any) => (a.distanceKm || 0) - (b.distanceKm || 0)).slice(0, 120);
       setNearbyPlaces(sortedPlaces);
