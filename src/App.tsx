@@ -597,19 +597,42 @@ export default function App() {
       setSelectedLoc1(origin);
 
       const radMeters = distanceUnit === 'km' ? radiusValue * 1000 : radiusValue;
+      const radKm = radMeters / 1000;
       const query = `[out:json][timeout:60];(nwr(around:${radMeters},${origin.lat},${origin.lon})["place"];nwr(around:${radMeters},${origin.lat},${origin.lon})["boundary"="administrative"]["admin_level"];);out center;`;
-      const res = await fetch(`https://overpass-api.de/api/interpreter`, {
-        method: 'POST',
-        body: `data=${encodeURIComponent(query)}`
-      });
-      if (!res.ok) throw new Error("Terjadi kesalahan saat memuat data wilayah.");
-      const data = await res.json();
       
-      if (data.remark) {
-        throw new Error(`Overpass API Error: ${data.remark}`);
+      const endpoints = [
+        'https://overpass-api.de/api/interpreter',
+        'https://overpass.kumi.systems/api/interpreter',
+        'https://maps.mail.ru/osm/tools/overpass/api/interpreter'
+      ];
+
+      let data = null;
+      for (const ep of endpoints) {
+        try {
+          const res = await fetch(ep, {
+            method: 'POST',
+            body: `data=${encodeURIComponent(query)}`
+          });
+          if (res.ok) {
+            const json = await res.json();
+            if (!json.remark) {
+              data = json;
+              break;
+            }
+          }
+        } catch (e) {
+          console.warn(`Endpoint ${ep} gagal`, e);
+        }
       }
 
-      const places = (data.elements || [])
+      if (!data) throw new Error("Terjadi kesalahan atau koneksi ke peladen pemetaan (Overpass API) gagal. Silakan coba beberapa saat lagi.");
+
+      const elements = data.elements || [];
+      if (elements.length === 0) {
+        throw new Error(`Peladen pemetaan menemukan 0 elemen di sekitar area ini.`);
+      }
+
+      const places = elements
         .filter((e: any) => e.tags && e.tags.name)
         .map((e: any) => {
           const lat = parseFloat(e.center ? e.center.lat : e.lat);
@@ -642,9 +665,10 @@ export default function App() {
         }
       });
       const uniquePlaces = Array.from(uniquePlacesMap.values());
-      const radKm = radMeters / 1000;
       
-      const validPlaces = uniquePlaces.filter((p: any) => p.distanceKm <= radKm);
+      // Allow a 15% tolerance buffer for matching bounding boxes returning centers just outside
+      // Overpass 'around' often yields items whose bounds intersect but center is outside
+      const validPlaces = uniquePlaces.filter((p: any) => p.distanceKm <= radKm * 1.15);
 
       const sortedPlaces = validPlaces.sort((a: any, b: any) => (a.distanceKm || 0) - (b.distanceKm || 0)).slice(0, 120);
       setNearbyPlaces(sortedPlaces);
