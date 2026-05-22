@@ -593,16 +593,23 @@ export default function App() {
       if (!origin) throw new Error("Titik Acuan tidak ditemukan");
       
       setPoints([origin]);
+      setLoc1(origin.display_name);
+      setSelectedLoc1(origin);
 
       const radMeters = distanceUnit === 'km' ? radiusValue * 1000 : radiusValue;
-      const query = `[out:json][timeout:25];(nwr(around:${radMeters},${origin.lat},${origin.lon})["place"];nwr(around:${radMeters},${origin.lat},${origin.lon})["boundary"="administrative"]["admin_level"];);out center;`;
+      const query = `[out:json][timeout:60];(nwr(around:${radMeters},${origin.lat},${origin.lon})["place"];nwr(around:${radMeters},${origin.lat},${origin.lon})["boundary"="administrative"]["admin_level"];);out center;`;
       const res = await fetch(`https://overpass-api.de/api/interpreter`, {
         method: 'POST',
         body: `data=${encodeURIComponent(query)}`
       });
+      if (!res.ok) throw new Error("Terjadi kesalahan saat memuat data wilayah.");
       const data = await res.json();
+      
+      if (data.remark) {
+        throw new Error(`Overpass API Error: ${data.remark}`);
+      }
 
-      const places = data.elements
+      const places = (data.elements || [])
         .filter((e: any) => e.tags && e.tags.name)
         .map((e: any) => {
           const lat = parseFloat(e.center ? e.center.lat : e.lat);
