@@ -1,35 +1,93 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap, useMapEvents, Circle, CircleMarker, Tooltip } from 'react-leaflet';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import {
+  MapContainer,
+  TileLayer,
+  Marker,
+  Popup,
+  Polyline,
+  useMap,
+  useMapEvents,
+  Circle,
+  CircleMarker,
+  Tooltip
+} from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
-import { Search, MapPin, Navigation, Loader2, Layers, Map as MapIcon, Route, Radar } from 'lucide-react';
+import {
+  Search,
+  MapPin,
+  Loader2,
+  Layers,
+  Map as MapIcon,
+  Printer,
+  History,
+  Trash2,
+  School,
+  Home,
+  CheckCircle2,
+  AlertTriangle,
+  Compass,
+  ArrowRight,
+  ShieldCheck,
+  Building,
+  RotateCcw,
+  Sparkles,
+  Info,
+  X,
+  Plus,
+  ExternalLink,
+  ChevronDown,
+  RefreshCw
+} from 'lucide-react';
 import { cn } from './lib/utils';
+import {
+  PRESET_SCHOOLS,
+  SMP_NEGERI_DENPASAR,
+  SMA_SMK_DENPASAR,
+  BANJAR_DENPASAR_DATA,
+  SchoolData,
+  BanjarNode,
+  calculatePreciseDistanceMeters,
+  evaluateZoningStatus,
+  ZoningZoneStatus
+} from './lib/spmbData';
+import { GeocodeCache, HistoryStorage, SavedCandidate } from './lib/storage';
 
-// Custom Icons
-const redIcon = L.divIcon({
+// Leaflet DivIcons
+const schoolIcon = L.divIcon({
   className: 'bg-transparent border-none',
-  html: `<div class="w-8 h-8 flex items-center justify-center">
-      <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="#ef4444" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="filter: drop-shadow(0 4px 6px rgba(0,0,0,0.5))">
-        <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/>
-        <circle cx="12" cy="10" r="3" fill="white"/>
-      </svg>
+  html: `<div class="w-10 h-10 flex items-center justify-center relative group">
+      <div class="absolute inset-0 bg-red-500/20 rounded-full animate-ping"></div>
+      <div class="w-9 h-9 bg-red-600 rounded-full flex items-center justify-center text-white shadow-xl shadow-red-500/50 border-2 border-white">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="m4 6 8-4 8 4"/>
+          <path d="m18 10 4 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-8l4-2"/>
+          <path d="M14 22v-4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v4"/>
+          <path d="M18 5v17"/>
+          <path d="M6 5v17"/>
+          <circle cx="12" cy="9" r="2"/>
+        </svg>
+      </div>
     </div>`,
-  iconSize: [32, 32],
-  iconAnchor: [16, 32],
-  popupAnchor: [0, -32]
+  iconSize: [40, 40],
+  iconAnchor: [20, 20],
+  popupAnchor: [0, -20]
 });
 
-const emeraldIcon = L.divIcon({
+const homeIcon = L.divIcon({
   className: 'bg-transparent border-none',
-  html: `<div class="w-8 h-8 flex items-center justify-center">
-      <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="#10b981" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="filter: drop-shadow(0 4px 6px rgba(0,0,0,0.5))">
-        <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/>
-        <circle cx="12" cy="10" r="3" fill="white"/>
-      </svg>
+  html: `<div class="w-10 h-10 flex items-center justify-center relative">
+      <div class="absolute inset-0 bg-emerald-500/20 rounded-full animate-pulse"></div>
+      <div class="w-9 h-9 bg-emerald-600 rounded-full flex items-center justify-center text-white shadow-xl shadow-emerald-500/50 border-2 border-white">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/>
+          <path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+        </svg>
+      </div>
     </div>`,
-  iconSize: [32, 32],
-  iconAnchor: [16, 32],
-  popupAnchor: [0, -32]
+  iconSize: [40, 40],
+  iconAnchor: [20, 20],
+  popupAnchor: [0, -20]
 });
 
 interface Coordinate {
@@ -38,1195 +96,1533 @@ interface Coordinate {
   display_name: string;
 }
 
-interface PlaceNode {
-  id: number;
-  lat: number;
-  lon: number;
-  name: string;
-  type: string;
-  distanceKm?: number;
+// Algoritma pencarian fuzzy yang dioptimasi
+function fuzzyMatch(query: string, target: string): boolean {
+  const q = query.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const t = target.toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (t.includes(q)) return true;
+
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  return words.every(w => target.toLowerCase().includes(w));
 }
 
-const placeTypeMap: Record<string, string> = {
-  province: 'Provinsi',
-  city: 'Kota / Kabupaten',
-  town: 'Kecamatan / Kota',
-  village: 'Desa / Kelurahan',
-  suburb: 'Area / Distrik',
-  neighbourhood: 'Lingkungan / RW',
-  hamlet: 'Dusun / Banjar',
-  boundary: 'Batas Wilayah',
-  place: 'Wilayah'
-};
-
-const INTERNAL_LOCATIONS: Coordinate[] = [
-  { lat: -8.656554, lon: 115.219518, display_name: "SMP Negeri 1 Denpasar" },
-  { lat: -8.651708, lon: 115.199247, display_name: "SMP Negeri 2 Denpasar" },
-  { lat: -8.652135, lon: 115.225518, display_name: "SMP Negeri 3 Denpasar" },
-  { lat: -8.652477, lon: 115.203827, display_name: "SMP Negeri 4 Denpasar" },
-  { lat: -8.632867, lon: 115.200401, display_name: "SMP Negeri 5 Denpasar" },
-  { lat: -8.702476, lon: 115.217289, display_name: "SMP Negeri 6 Denpasar" },
-  { lat: -8.665190, lon: 115.199253, display_name: "SMP Negeri 7 Denpasar" },
-  { lat: -8.644567, lon: 115.234768, display_name: "SMP Negeri 8 Denpasar" },
-  { lat: -8.689595, lon: 115.259148, display_name: "SMP Negeri 9 Denpasar" },
-  { lat: -8.638020, lon: 115.213707, display_name: "SMP Negeri 10 Denpasar" },
-  { lat: -8.724407, lon: 115.230831, display_name: "SMP Negeri 11 Denpasar" },
-  { lat: -8.598061, lon: 115.221893, display_name: "SMP Negeri 12 Denpasar" },
-  { lat: -8.680102, lon: 115.176030, display_name: "SMP Negeri 13 Denpasar" },
-  { lat: -8.644951, lon: 115.248045, display_name: "SMP Negeri 14 Denpasar" },
-  { lat: -8.620475, lon: 115.185327, display_name: "SMP Negeri 15 Denpasar" },
-  { lat: -8.702735, lon: 115.235702, display_name: "SMP Negeri 16 Denpasar" },
-  { lat: -8.612007, lon: 115.243493, display_name: "SMP Negeri 17 Denpasar" }
-];
-
-// Advanced string similarity recognizing partial matches, typo tolerance, and word reordering
-function calculateSimilarity(query: string, target: string): number {
-  const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').trim().replace(/\s+/g, ' ');
-  const qStr = normalize(query);
-  const tStr = normalize(target);
-
-  if (qStr === tStr) return 1;
-  const qWords = qStr.split(' ').filter(w => w.length > 0);
-  const tWords = tStr.split(' ').filter(w => w.length > 0);
-
-  if (qWords.length === 0 || tWords.length === 0) return 0;
-
-  const levenshtein = (a: string, b: string): number => {
-    if (a.length === 0) return b.length;
-    if (b.length === 0) return a.length;
-    let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
-    let curr = new Array(b.length + 1).fill(0);
-    for (let i = 1; i <= a.length; i++) {
-        curr[0] = i;
-        for (let j = 1; j <= b.length; j++) {
-            const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-            curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost);
-        }
-        [prev, curr] = [curr, prev];
-    }
-    return prev[b.length];
-  };
-
-  // 1. Word-level similarity (handles reordering and inner-word typos well)
-  let queryWordScore = 0;
-  for (const qw of qWords) {
-      let maxSim = 0;
-      for (const tw of tWords) {
-          const maxLen = Math.max(qw.length, tw.length);
-          const dist = levenshtein(qw, tw);
-          const sim = maxLen === 0 ? 1 : (maxLen - dist) / maxLen;
-          if (sim > maxSim) maxSim = sim;
-      }
-      queryWordScore += maxSim;
-  }
-  queryWordScore /= qWords.length;
-  
-  // 2. Bigram subset similarity (handles combined/split words without strictly caring about boundaries)
-  const qConcat = qStr.replace(/\s+/g, '');
-  const tConcat = tStr.replace(/\s+/g, '');
-  
-  const getBigrams = (s: string) => {
-    const bg = [];
-    for (let i = 0; i < s.length - 1; i++) bg.push(s.slice(i, i + 2));
-    return bg;
-  };
-  
-  const b1 = getBigrams(qConcat);
-  const b2 = getBigrams(tConcat);
-  
-  let match = 0;
-  const b2Map = new Map<string, number>();
-  for (const bg of b2) b2Map.set(bg, (b2Map.get(bg) || 0) + 1);
-  for (const bg of b1) {
-    if ((b2Map.get(bg) || 0) > 0) {
-      match++;
-      b2Map.set(bg, b2Map.get(bg)! - 1);
-    }
-  }
-  const diceQ = b1.length === 0 ? 1 : match / b1.length;
-  
-  return Math.max(queryWordScore, diceQ);
-}
-
-
-// Map Bounds Updater Component
-function useDebounce<T>(value: T, delay: number): T {
-  const [debouncedValue, setDebouncedValue] = useState<T>(value);
-  useEffect(() => {
-    const handler = setTimeout(() => {
-      setDebouncedValue(value);
-    }, delay);
-    return () => clearTimeout(handler);
-  }, [value, delay]);
-  return debouncedValue;
-}
-
-function LocationInput({ 
-  id, 
-  label, 
-  placeholder, 
-  value, 
-  onChange, 
-  onSelect, 
-  dotColor,
-  isDark,
-  onMapClickRequest,
-  isSelectingMapLocation
-}: { 
-  id: string, 
-  label: string, 
-  placeholder: string, 
-  value: string, 
-  onChange: (val: string) => void,
-  onSelect: (coord: Coordinate | null) => void,
-  dotColor: string,
-  isDark: boolean;
-  onMapClickRequest?: () => void;
-  isSelectingMapLocation?: boolean;
-}) {
-  const [suggestions, setSuggestions] = useState<Coordinate[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [isOpen, setIsOpen] = useState(false);
-  const wrapperRef = useRef<HTMLDivElement>(null);
-  const preventReopen = useRef(false);
-
-  const debouncedValue = useDebounce(value, 500);
-
-  useEffect(() => {
-    if (!debouncedValue || debouncedValue.length < 3) {
-      setSuggestions([]);
-      return;
-    }
-
-    if (preventReopen.current) {
-      preventReopen.current = false;
-      return;
-    }
-
-    const coordMatch = debouncedValue.trim().match(/^([-+]?\d{1,2}(?:\.\d+)?)[,\s]+([-+]?\d{1,3}(?:\.\d+)?)$/);
-    if (coordMatch) {
-      setSuggestions([{
-        lat: parseFloat(coordMatch[1]),
-        lon: parseFloat(coordMatch[2]),
-        display_name: `Koordinat Kustom: ${coordMatch[1]}, ${coordMatch[2]}`
-      }]);
-      setIsOpen(true);
-      return;
-    }
-
-    let isMounted = true;
-    const fetchSuggestions = async () => {
-      setLoading(true);
-      try {
-        const queryLower = debouncedValue.toLowerCase();
-        
-        // internal Exact
-        const internalExact = INTERNAL_LOCATIONS.filter(l => l.display_name.toLowerCase().includes(queryLower));
-        
-        // internal fuzzy
-        const internalFuzzy = INTERNAL_LOCATIONS.map(l => ({
-          ...l,
-          score: calculateSimilarity(debouncedValue, l.display_name)
-        }))
-        .filter(l => l.score >= 0.65 && !internalExact.some(e => e.display_name === l.display_name))
-        .sort((a, b) => b.score - (a.score as number))
-        .map(l => ({ lat: l.lat, lon: l.lon, display_name: l.display_name }));
-
-        const internalResults = [...internalExact, ...internalFuzzy];
-
-        let nominatimResults: Coordinate[] = [];
-        try {
-          const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(debouncedValue)}&limit=5&addressdetails=1`);
-          const data = await res.json();
-          if (data && data.length > 0) {
-            nominatimResults = data.map((item: any) => ({
-              lat: parseFloat(item.lat),
-              lon: parseFloat(item.lon),
-              display_name: item.display_name
-            }));
-          } else {
-            // fallback: permutasi kata untuk menangani typo spasi menggunakan Nominatim
-            const words = debouncedValue.split(/[\s,]+/).filter(w => w.length > 0);
-            if (words.length > 1) {
-              const alternatives = [];
-              
-              // 1. Coba gabungkan 2 kata berdekatan yang paling pendek (handle spasi yang tidak perlu seperti "padang sambian" -> "padangsambian")
-              const pairs = [];
-              for (let i = 0; i < words.length - 1; i++) {
-                pairs.push({ idx: i, sum: words[i].length + words[i+1].length });
-              }
-              pairs.sort((a, b) => a.sum - b.sum);
-              for (const p of pairs.slice(0, 2)) {
-                const temp = [...words];
-                temp[p.idx] = temp[p.idx] + temp[p.idx+1];
-                temp.splice(p.idx+1, 1);
-                alternatives.push(temp.join(" "));
-              }
-              // 2. Coba balik urutan kata
-              alternatives.push([...words].reverse().join(" "));
-              // 3. Hanya ambil 3 kata terpanjang
-              const longest = [...words].sort((a,b) => b.length - a.length).slice(0, 3);
-              alternatives.push(longest.join(" "));
-
-              // Hapus duplikat
-              const uniqueAlternatives = Array.from(new Set(alternatives)).slice(0, 3); // max 3 request fallback
-
-              for (const altQuery of uniqueAlternatives) {
-                try {
-                  const fallbackRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(altQuery)}&limit=5&addressdetails=1`);
-                  if (fallbackRes.ok) {
-                    const fallbackData = await fallbackRes.json();
-                    if (fallbackData && fallbackData.length > 0) {
-                      const fuzzyMatched = fallbackData.map((item: any) => ({
-                        lat: parseFloat(item.lat),
-                        lon: parseFloat(item.lon),
-                        display_name: item.display_name,
-                        score: calculateSimilarity(debouncedValue, item.display_name)
-                      })).filter((item: any) => item.score >= 0.55).sort((a: any, b: any) => b.score - a.score);
-
-                      if (fuzzyMatched.length > 0) {
-                        nominatimResults = fuzzyMatched.map((item: any) => ({
-                          lat: item.lat, // preserve precise coordinate mapping
-                          lon: item.lon,
-                          display_name: item.display_name
-                        }));
-                        break; // Stop if we found a match
-                      }
-                    }
-                  }
-                } catch (e) {
-                  console.warn("Fallback failed for", altQuery, e);
-                }
-              }
-            }
-          }
-        } catch (err) {
-          console.warn("Nominatim search issue:", err);
-        }
-        
-        if (isMounted) {
-          const combined = [...internalResults, ...nominatimResults];
-          // deduplicate
-          const unique = combined.filter((v, i, a) => a.findIndex(t => (t.display_name === v.display_name)) === i);
-          setSuggestions(unique);
-          if (unique.length > 0) setIsOpen(true);
-        }
-      } catch (err) {
-        console.error(err);
-      } finally {
-        if (isMounted) setLoading(false);
-      }
-    };
-
-    fetchSuggestions();
-    return () => { isMounted = false; };
-  }, [debouncedValue]);
-
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [wrapperRef]);
-
-  return (
-    <div className="relative" ref={wrapperRef}>
-      <label htmlFor={id} className={cn("text-[10px] uppercase font-bold mb-2 flex justify-between items-center", isDark ? "text-slate-500" : "text-slate-500")}>
-        <span>{label}</span>
-        {onMapClickRequest && (
-          <button 
-            type="button" 
-            title="Pilih Titik di Peta"
-            onClick={onMapClickRequest} 
-            className={cn("flex items-center gap-1 px-2 py-0.5 rounded-full transition-colors", isSelectingMapLocation ? "bg-blue-500 text-white" : (isDark ? "bg-slate-800 hover:bg-slate-700 text-slate-300" : "bg-slate-200 hover:bg-slate-300 text-slate-700"))}
-          >
-            <MapPin className="w-3 h-3" />
-            <span className="text-[9px]">{isSelectingMapLocation ? "Pilih di Peta..." : "Pilih Peta"}</span>
-          </button>
-        )}
-      </label>
-      <div className="relative group">
-        <input
-          type="text"
-          id={id}
-          value={value}
-          onChange={(e) => {
-            preventReopen.current = false;
-            onChange(e.target.value);
-            onSelect(null);
-          }}
-          onFocus={() => {
-            if (suggestions.length > 0) setIsOpen(true);
-          }}
-          placeholder={placeholder}
-          className={cn(
-            "w-full rounded-xl py-3 px-4 text-sm focus:border-blue-500 outline-none transition-colors border",
-            isDark ? "bg-black/40 border-white/10 text-slate-200" : "bg-white border-slate-300 text-slate-900 shadow-sm",
-            isSelectingMapLocation && "border-blue-500 shadow-[0_0_0_2px_rgba(59,130,246,0.3)] bg-blue-500/5"
-          )}
-          required
-          autoComplete="off"
-        />
-        <div className={cn("absolute right-3 top-3.5 w-2 h-2 rounded-full", dotColor)}></div>
-        {loading && <Loader2 className="absolute right-8 top-3.5 w-4 h-4 text-slate-400 animate-spin" />}
-      </div>
-
-      {isOpen && suggestions.length > 0 && (
-        <div className={cn(
-          "absolute z-[100] w-full mt-2 rounded-xl shadow-2xl overflow-hidden max-h-60 overflow-y-auto border",
-          isDark ? "bg-slate-800 border-white/10" : "bg-white border-slate-200"
-        )}>
-          {suggestions.map((sug, idx) => (
-            <button
-              key={idx}
-              type="button"
-              className={cn(
-                "w-full text-left px-4 py-3 border-b last:border-0 text-sm transition-colors",
-                isDark ? "hover:bg-slate-700 border-white/5 text-slate-300" : "hover:bg-slate-100 border-slate-100 text-slate-700 rounded-none"
-              )}
-              onClick={() => {
-                preventReopen.current = true;
-                onChange(sug.display_name);
-                onSelect(sug);
-                setIsOpen(false);
-              }}
-            >
-              <div className="line-clamp-2">{sug.display_name}</div>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function MapUpdater({ points }: { points: Coordinate[] }) {
+// Map Controller for bounds & smooth pan dengan transisi stabil
+function MapViewController({ schoolPoint, homePoint }: { schoolPoint: Coordinate | null; homePoint: Coordinate | null }) {
   const map = useMap();
-  
+
   useEffect(() => {
-    if (points.length === 2) {
+    if (schoolPoint && homePoint) {
       const bounds = L.latLngBounds(
-        [points[0].lat, points[0].lon],
-        [points[1].lat, points[1].lon]
+        [schoolPoint.lat, schoolPoint.lon],
+        [homePoint.lat, homePoint.lon]
       );
-      // Wait slightly to ensure map container has sized correctly
-      setTimeout(() => {
-        map.fitBounds(bounds, { padding: [50, 50], animate: true });
-      }, 100);
-    } else if (points.length === 1) {
-      map.flyTo([points[0].lat, points[0].lon], 13);
+      map.fitBounds(bounds, { padding: [70, 70], maxZoom: 17, animate: true, duration: 0.6 });
+    } else if (schoolPoint) {
+      map.flyTo([schoolPoint.lat, schoolPoint.lon], 15, { animate: true, duration: 0.6 });
+    } else if (homePoint) {
+      map.flyTo([homePoint.lat, homePoint.lon], 15, { animate: true, duration: 0.6 });
     }
-  }, [points, map]);
+  }, [schoolPoint, homePoint, map]);
 
   return null;
 }
 
-function MapClickHandler({ isActive, onLocationSelected }: { isActive: boolean, onLocationSelected: (coord: Coordinate) => void }) {
+// Map Click Picker & Proximity Snap Detector
+function MapClickHandler({
+  isActive,
+  onPick,
+  banjars,
+  onSelectBanjar
+}: {
+  isActive: boolean;
+  onPick: (lat: number, lon: number) => void;
+  banjars?: BanjarNode[];
+  onSelectBanjar?: (b: BanjarNode) => void;
+}) {
+  const map = useMap();
+
   useMapEvents({
     click(e) {
-      if (!isActive) return;
-      onLocationSelected({
-        lat: e.latlng.lat,
-        lon: e.latlng.lng,
-        display_name: `Titik Pilihan Peta (${e.latlng.lat.toFixed(4)}, ${e.latlng.lng.toFixed(4)})`
-      });
+      if (isActive) {
+        onPick(e.latlng.lat, e.latlng.lng);
+        return;
+      }
+
+      // Deteksi Kedekatan Piksel Layar (Snap Proximity)
+      // Jika pengguna menekan di dekat titik banjar (toleransi s.d. 20 piksel layar)
+      if (banjars && banjars.length > 0 && onSelectBanjar) {
+        const clickPt = map.latLngToContainerPoint(e.latlng);
+        let nearest: BanjarNode | null = null;
+        let minDistancePx = Infinity;
+
+        for (const b of banjars) {
+          const bPt = map.latLngToContainerPoint([b.lat, b.lon]);
+          const dPx = Math.hypot(clickPt.x - bPt.x, clickPt.y - bPt.y);
+          if (dPx < minDistancePx) {
+            minDistancePx = dPx;
+            nearest = b;
+          }
+        }
+
+        // Toleransi responsif: jika klik dalam 20px dari titik (mencakup 3px s.d. 20px)
+        if (nearest && minDistancePx <= 20) {
+          onSelectBanjar(nearest);
+        }
+      }
     }
   });
   return null;
 }
 
-type HistoryItem = {
-  id: string;
-  timestamp: number;
-  type: 'distance' | 'radius';
-  summary: string;
-  details: string;
-  places?: { name: string; dist: string }[];
-};
+// Palet warna estetik untuk membedakan tiap lingkaran radius
+const RADIUS_COLORS = [
+  { stroke: '#10b981', fill: '#10b981' }, // 1st - Emerald
+  { stroke: '#3b82f6', fill: '#3b82f6' }, // 2nd - Blue
+  { stroke: '#8b5cf6', fill: '#8b5cf6' }, // 3rd - Purple
+  { stroke: '#f59e0b', fill: '#f59e0b' }, // 4th - Amber
+  { stroke: '#ec4899', fill: '#ec4899' }, // 5th - Pink
+  { stroke: '#06b6d4', fill: '#06b6d4' }  // 6th - Cyan
+];
 
 export default function App() {
-  const [loc1, setLoc1] = useState('');
-  const [loc2, setLoc2] = useState('');
-  
-  const [selectedLoc1, setSelectedLoc1] = useState<Coordinate | null>(null);
-  const [selectedLoc2, setSelectedLoc2] = useState<Coordinate | null>(null);
-  
-  const [selectingTarget, setSelectingTarget] = useState<'loc1' | 'loc2' | null>(null);
+  const [isDark, setIsDark] = useState<boolean>(() => {
+    const saved = localStorage.getItem('skydist_theme');
+    return saved ? saved === 'dark' : true;
+  });
 
-  const [points, setPoints] = useState<Coordinate[]>([]);
-  const [distanceKm, setDistanceKm] = useState<number | null>(null);
-  
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  
   const [mapType, setMapType] = useState<'satellite' | 'street'>('satellite');
-  
-  const [radiusValue, setRadiusValue] = useState<number>(10);
-  const [showRadius, setShowRadius] = useState<boolean>(false);
-  const [nearbyPlaces, setNearbyPlaces] = useState<PlaceNode[]>([]);
-  const [loadingPlaces, setLoadingPlaces] = useState<boolean>(false);
 
-  const [activeTab, setActiveTab] = useState<'distance' | 'radius'>('distance');
-  const [showHistory, setShowHistory] = useState(false);
-  const [history, setHistory] = useState<HistoryItem[]>([]);
-  
-  const [isDark, setIsDark] = useState(true);
-  const [distanceUnit, setDistanceUnit] = useState<'km' | 'm'>('km');
+  // Input states
+  const [selectedSchool, setSelectedSchool] = useState<SchoolData | null>(SMP_NEGERI_DENPASAR[0]);
+  const [schoolQuery, setSchoolQuery] = useState(SMP_NEGERI_DENPASAR[0].name);
+  const [schoolSuggestions, setSchoolSuggestions] = useState<SchoolData[]>([]);
+  const [showSchoolDropdown, setShowSchoolDropdown] = useState(false);
 
+  // Status Sinkronisasi Asinkron (Jeda 300ms untuk transisi kamera map & rekalkulasi presisi)
+  const [isSyncingSchool, setIsSyncingSchool] = useState<boolean>(false);
+  const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const activeRequestIdRef = useRef<number>(0);
+  const lastSchoolIdRef = useRef<string | null>(SMP_NEGERI_DENPASAR[0].id);
+
+  const [studentName, setStudentName] = useState('');
+  const [candidateNumber, setCandidateNumber] = useState('');
+  const [homeAddress, setHomeAddress] = useState('');
+  const [homePoint, setHomePoint] = useState<Coordinate | null>(null);
+  const [homeSuggestions, setHomeSuggestions] = useState<Coordinate[]>([]);
+  const [showHomeDropdown, setShowHomeDropdown] = useState(false);
+  const [searchingHome, setSearchingHome] = useState(false);
+
+  // Map picking mode
+  const [pickingTarget, setPickingTarget] = useState<'school' | 'home' | null>(null);
+
+  // Multi-Radius States
+  const [activeRadiusList, setActiveRadiusList] = useState<number[]>([1000, 2500]); // 1 km & 2.5 km
+  const [customRadiusInput, setCustomRadiusInput] = useState<string>('');
+  const [customRadiusUnit, setCustomRadiusUnit] = useState<'m' | 'km'>('m');
+  const [showRadiusRings, setShowRadiusRings] = useState<boolean>(true);
+
+  // Banjar nodes in max radius
+  const [banjarNodes, setBanjarNodes] = useState<BanjarNode[]>([]);
+  const [loadingBanjars, setLoadingBanjars] = useState(false);
+  const [selectedBanjarPopup, setSelectedBanjarPopup] = useState<BanjarNode | null>(null);
+
+  // Calculation results
+  const [distanceData, setDistanceData] = useState<{
+    meters: number;
+    kilometers: number;
+    formattedMeters: string;
+    formattedKm: string;
+  } | null>(null);
+
+  const [zoningStatus, setZoningStatus] = useState<ZoningZoneStatus | null>(null);
+
+  // History & Modal
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [historyList, setHistoryList] = useState<SavedCandidate[]>([]);
+  const [showPrintModal, setShowPrintModal] = useState(false);
+
+  // Sync dark class with document
   useEffect(() => {
-    setPoints([]);
-    setDistanceKm(null);
-    setNearbyPlaces([]);
-    setShowRadius(false);
-  }, [activeTab]);
-
-  const geocode = async (query: string): Promise<Coordinate> => {
-    const coordMatch = query.trim().match(/^([-+]?\d{1,2}(?:\.\d+)?)[,\s]+([-+]?\d{1,3}(?:\.\d+)?)$/);
-    if (coordMatch) {
-      return {
-        lat: parseFloat(coordMatch[1]),
-        lon: parseFloat(coordMatch[2]),
-        display_name: `Koordinat Kustom: ${coordMatch[1]}, ${coordMatch[2]}`
-      };
+    localStorage.setItem('skydist_theme', isDark ? 'dark' : 'light');
+    if (isDark) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
     }
+  }, [isDark]);
 
-    const queryLower = query.trim().toLowerCase();
-    let exactInternal = INTERNAL_LOCATIONS.find(l => l.display_name.toLowerCase() === queryLower);
-    if (!exactInternal) {
-      const fuzzyMatch = INTERNAL_LOCATIONS.map(l => ({ ...l, score: calculateSimilarity(query, l.display_name) }))
-        .filter(l => l.score >= 0.65).sort((a,b) => b.score - a.score)[0];
-      if (fuzzyMatch) {
-         exactInternal = { lat: fuzzyMatch.lat, lon: fuzzyMatch.lon, display_name: fuzzyMatch.display_name };
-      }
+  // Load history on mount
+  useEffect(() => {
+    setHistoryList(HistoryStorage.getAll());
+  }, []);
+
+  // School auto-search filter
+  useEffect(() => {
+    if (!schoolQuery) {
+      setSchoolSuggestions(PRESET_SCHOOLS.slice(0, 15));
+      return;
     }
-    if (exactInternal) {
-      return exactInternal;
-    }
+    const filtered = PRESET_SCHOOLS.filter(s =>
+      fuzzyMatch(schoolQuery, `${s.name} ${s.city} ${s.province} ${s.level}`)
+    ).slice(0, 15);
+    setSchoolSuggestions(filtered);
+  }, [schoolQuery]);
 
-    const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`);
-    if (!res.ok) throw new Error(`Gagal menghubungi server geocoding.`);
-    const data = await res.json();
-    if (data && data.length > 0) {
-      return {
-        lat: parseFloat(data[0].lat),
-        lon: parseFloat(data[0].lon),
-        display_name: data[0].display_name
-      };
-    }
-    
-    // Fuzzy fallback on Nominatim API
-    const words = query.split(/[\s,]+/).filter(w => w.length > 0);
-    if (words.length > 1) {
-      const alternatives = [];
-      
-      const pairs = [];
-      for (let i = 0; i < words.length - 1; i++) {
-        pairs.push({ idx: i, sum: words[i].length + words[i+1].length });
-      }
-      pairs.sort((a, b) => a.sum - b.sum);
-      for (const p of pairs.slice(0, 2)) {
-        const temp = [...words];
-        temp[p.idx] = temp[p.idx] + temp[p.idx+1];
-        temp.splice(p.idx+1, 1);
-        alternatives.push(temp.join(" "));
-      }
-      alternatives.push([...words].reverse().join(" "));
-      const longest = [...words].sort((a,b) => b.length - a.length).slice(0, 3);
-      alternatives.push(longest.join(" "));
-
-      const uniqueAlternatives = Array.from(new Set(alternatives)).slice(0, 3);
-
-      for (const altQuery of uniqueAlternatives) {
-        try {
-          const fallbackRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(altQuery)}&limit=5&addressdetails=1`);
-          if (fallbackRes.ok) {
-            const fallbackData = await fallbackRes.json();
-            if (fallbackData && fallbackData.length > 0) {
-              const fuzzyMatched = fallbackData.map((item: any) => ({
-                lat: parseFloat(item.lat),
-                lon: parseFloat(item.lon),
-                display_name: item.display_name,
-                score: calculateSimilarity(query, item.display_name)
-              })).filter((item: any) => item.score >= 0.55).sort((a: any, b: any) => b.score - a.score);
-
-              if (fuzzyMatched.length > 0) {
-                return {
-                  lat: fuzzyMatched[0].lat,
-                  lon: fuzzyMatched[0].lon,
-                  display_name: fuzzyMatched[0].display_name
-                };
-              }
-            }
-          }
-        } catch (e) {
-          console.warn("Geocode fallback failed", e);
-        }
-      }
-    }
-    
-    throw new Error(`Lokasi "${query}" tidak ditemukan.`);
-  };
-
-  const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
-    const R = 6371; // Radius of the earth in km
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLon = (lon2 - lon1) * Math.PI / 180;
-    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-              Math.sin(dLon/2) * Math.sin(dLon/2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-    return R * c;
-  };
-
-  const handleSearchRadius = async () => {
-    if (!loc1.trim()) return;
-    
-    setLoadingPlaces(true);
-    setShowRadius(true);
-    setNearbyPlaces([]);
-
-    try {
-      const origin = selectedLoc1?.display_name === loc1 ? selectedLoc1 : await geocode(loc1);
-      if (!origin) throw new Error("Titik Acuan tidak ditemukan");
-      
-      setPoints([origin]);
-      setLoc1(origin.display_name);
-      setSelectedLoc1(origin);
-
-      const radMeters = distanceUnit === 'km' ? radiusValue * 1000 : radiusValue;
-      const radKm = radMeters / 1000;
-      const query = `[out:json][timeout:60];(nwr(around:${radMeters},${origin.lat},${origin.lon})["place"];nwr(around:${radMeters},${origin.lat},${origin.lon})["boundary"="administrative"]["admin_level"];);out center;`;
-      
-      const endpoints = [
-        'https://overpass-api.de/api/interpreter',
-        'https://overpass.kumi.systems/api/interpreter',
-        'https://maps.mail.ru/osm/tools/overpass/api/interpreter'
-      ];
-
-      let data = null;
-      for (const ep of endpoints) {
-        try {
-          const res = await fetch(ep, {
-            method: 'POST',
-            body: `data=${encodeURIComponent(query)}`
-          });
-          if (res.ok) {
-            const json = await res.json();
-            if (!json.remark) {
-              data = json;
-              break;
-            }
-          }
-        } catch (e) {
-          console.warn(`Endpoint ${ep} gagal`, e);
-        }
-      }
-
-      if (!data) throw new Error("Terjadi kesalahan atau koneksi ke peladen pemetaan (Overpass API) gagal. Silakan coba beberapa saat lagi.");
-
-      const elements = data.elements || [];
-      if (elements.length === 0) {
-        throw new Error(`Peladen pemetaan menemukan 0 elemen di sekitar area ini.`);
-      }
-
-      const places = elements
-        .filter((e: any) => e.tags && e.tags.name)
-        .map((e: any) => {
-          const lat = parseFloat(e.center ? e.center.lat : e.lat);
-          const lon = parseFloat(e.center ? e.center.lon : e.lon);
-          const dist = calculateDistance(origin.lat, origin.lon, lat, lon);
-          let typeLabel = e.tags.place;
-          if (!typeLabel && e.tags.boundary === 'administrative' && e.tags.admin_level) {
-             const al = parseInt(e.tags.admin_level);
-             if (al === 4) typeLabel = 'province';
-             else if (al === 5 || al === 6) typeLabel = 'city';
-             else if (al === 7) typeLabel = 'town';
-             else if (al === 8) typeLabel = 'village';
-             else if (al >= 9) typeLabel = 'neighbourhood';
-             else typeLabel = 'boundary';
-          }
-          return {
-            id: e.id,
-            lat: lat,
-            lon: lon,
-            name: e.tags.name,
-            type: typeLabel || 'place',
-            distanceKm: dist
-          };
-        });
-      
-      const uniquePlacesMap = new Map();
-      places.forEach((p: any) => {
-        if (!uniquePlacesMap.has(p.name) || p.distanceKm < uniquePlacesMap.get(p.name).distanceKm) {
-          uniquePlacesMap.set(p.name, p);
-        }
-      });
-      const uniquePlaces = Array.from(uniquePlacesMap.values());
-      
-      const validPlaces = uniquePlaces.filter((p: any) => p.distanceKm <= radKm);
-
-      const sortedPlaces = validPlaces.sort((a: any, b: any) => (a.distanceKm || 0) - (b.distanceKm || 0)).slice(0, 120);
-      setNearbyPlaces(sortedPlaces);
-      
-      setHistory(prev => [{
-        id: Math.random().toString(36).substring(7),
-        timestamp: Date.now(),
-        type: 'radius',
-        summary: `Radius ${radiusValue} ${distanceUnit.toUpperCase()} dari ${origin.display_name.split(',')[0]}`,
-        details: `Ditemukan ${sortedPlaces.length} wilayah:`,
-        places: sortedPlaces.map((p: any) => ({
-          name: p.name,
-          dist: `${(distanceUnit === 'km' ? p.distanceKm : p.distanceKm * 1000).toLocaleString('id-ID', { maximumFractionDigits: 2 })} ${distanceUnit.toUpperCase()}`
-        }))
-      }, ...prev]);
-    } catch (err) {
-      console.error("Gagal mendapatkan data area:", err);
-    } finally {
-      setLoadingPlaces(false);
-    }
-  };
-
-  const handleCalculate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!loc1.trim() || !loc2.trim()) {
-      setError("Silakan masukkan kedua lokasi.");
+  // Home geocoding with debounce & instant cache lookup
+  useEffect(() => {
+    if (!homeAddress || homeAddress.length < 3) {
+      setHomeSuggestions([]);
       return;
     }
 
-    setLoading(true);
-    setError(null);
-    setDistanceKm(null);
-    setPoints([]);
-    setNearbyPlaces([]);
-    setShowRadius(false);
+    const coordMatch = homeAddress.trim().match(/^([-+]?\d{1,2}(?:\.\d+)?)[,\s]+([-+]?\d{1,3}(?:\.\d+)?)$/);
+    if (coordMatch) {
+      const lat = parseFloat(coordMatch[1]);
+      const lon = parseFloat(coordMatch[2]);
+      setHomeSuggestions([{
+        lat,
+        lon,
+        display_name: `Koordinat GPS: ${lat.toFixed(6)}, ${lon.toFixed(6)}`
+      }]);
+      setShowHomeDropdown(true);
+      return;
+    }
 
-    try {
-      const coord1 = selectedLoc1?.display_name === loc1 ? selectedLoc1 : await geocode(loc1);
-      const coord2 = selectedLoc2?.display_name === loc2 ? selectedLoc2 : await geocode(loc2);
+    const cached = GeocodeCache.get(homeAddress);
+    if (cached) {
+      setHomeSuggestions(cached);
+      return;
+    }
 
-      setPoints([coord1, coord2]);
-      const dist = calculateDistance(coord1.lat, coord1.lon, coord2.lat, coord2.lon);
-      setDistanceKm(dist);
+    const timer = setTimeout(async () => {
+      setSearchingHome(true);
+      try {
+        const queryParams = new URLSearchParams({
+          format: 'json',
+          q: homeAddress,
+          countrycodes: 'id',
+          limit: '6',
+          addressdetails: '1'
+        });
 
-      setHistory(prev => [{
-        id: Math.random().toString(36).substring(7),
-        timestamp: Date.now(),
-        type: 'distance',
-        summary: `${coord1.display_name.split(',')[0]} - ${coord2.display_name.split(',')[0]}`,
-        details: `Jarak: ${(distanceUnit === 'km' ? dist : dist * 1000).toLocaleString('id-ID', { maximumFractionDigits: 2 })} ${distanceUnit.toUpperCase()}`
-      }, ...prev]);
+        const res = await fetch(`https://nominatim.openstreetmap.org/search?${queryParams.toString()}`);
+        if (res.ok) {
+          const data = await res.json();
+          const parsed = data.map((item: any) => ({
+            lat: parseFloat(item.lat),
+            lon: parseFloat(item.lon),
+            display_name: item.display_name
+          }));
+          setHomeSuggestions(parsed);
+          GeocodeCache.set(homeAddress, parsed);
+        }
+      } catch (err) {
+        console.warn('Geocode query failed:', err);
+      } finally {
+        setSearchingHome(false);
+      }
+    }, 450);
 
-    } catch (err: any) {
-      setError(err.message || 'Terjadi kesalahan saat mencari lokasi.');
-    } finally {
-      setLoading(false);
+    return () => clearTimeout(timer);
+  }, [homeAddress]);
+
+  // School Coordinate
+  const schoolCoordinate = useMemo<Coordinate | null>(() => {
+    if (!selectedSchool) return null;
+    return {
+      lat: selectedSchool.lat,
+      lon: selectedSchool.lon,
+      display_name: selectedSchool.name
+    };
+  }, [selectedSchool]);
+
+  // Max radius aktif saat ini (untuk memuat semua banjar yang masuk jangkauan terluar)
+  const maxActiveRadius = useMemo(() => {
+    if (activeRadiusList.length === 0) return 0;
+    return Math.max(...activeRadiusList);
+  }, [activeRadiusList]);
+
+  // Titik Banjar yang dijamin secara matematis lolos filter radius aktif terluar saat ini
+  const visibleBanjars = useMemo<BanjarNode[]>(() => {
+    if (!schoolCoordinate || !showRadiusRings || activeRadiusList.length === 0 || maxActiveRadius <= 0) {
+      return [];
+    }
+    return banjarNodes
+      .map(b => {
+        const dist = calculatePreciseDistanceMeters(schoolCoordinate.lat, schoolCoordinate.lon, b.lat, b.lon);
+        return {
+          ...b,
+          distanceMeters: dist.meters,
+          distanceKm: dist.kilometers
+        };
+      })
+      .filter(b => (b.distanceMeters || 0) <= maxActiveRadius)
+      .sort((a, b) => (a.distanceMeters || 0) - (b.distanceMeters || 0));
+  }, [banjarNodes, schoolCoordinate, showRadiusRings, activeRadiusList, maxActiveRadius]);
+
+  // SINKRONISASI ASINKRON (JEDA 300ms) SAAT GANTI SEKOLAH / RADIUS:
+  // Menunggu kamera map bergerak ke titik baru, lalu menghitung ulang:
+  // 1. Jarak & Status Kelayakan Zonasi Rumah Calon Siswa
+  // 2. Pemindaian Titik Seluruh Banjar di dalam Multi-Radius
+  useEffect(() => {
+    const currentReqId = ++activeRequestIdRef.current;
+
+    // Batalkan request fetch Overpass yang sedang berjalan jika ada
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+
+    if (!schoolCoordinate) {
+      setDistanceData(null);
+      setZoningStatus(null);
+      setBanjarNodes([]);
+      setSelectedBanjarPopup(null);
+      setIsSyncingSchool(false);
+      return;
+    }
+
+    // Jika id sekolah berubah, bersihkan titik banjar seketika agar marker lama tidak tertinggal di peta
+    if (selectedSchool?.id !== lastSchoolIdRef.current) {
+      lastSchoolIdRef.current = selectedSchool?.id || null;
+      setBanjarNodes([]);
+      setSelectedBanjarPopup(null);
+    }
+
+    // Aktifkan indikator loading sinkronisasi
+    setIsSyncingSchool(true);
+
+    if (syncTimeoutRef.current) {
+      clearTimeout(syncTimeoutRef.current);
+    }
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    syncTimeoutRef.current = setTimeout(() => {
+      if (activeRequestIdRef.current !== currentReqId) return;
+
+      // 1. Hitung ulang jarak rumah calon siswa ke sekolah baru
+      if (homePoint) {
+        const calc = calculatePreciseDistanceMeters(
+          schoolCoordinate.lat,
+          schoolCoordinate.lon,
+          homePoint.lat,
+          homePoint.lon
+        );
+        setDistanceData(calc);
+        setZoningStatus(evaluateZoningStatus(calc.meters));
+
+        // Auto save kandidat ke riwayat
+        const newEntry: SavedCandidate = {
+          id: `${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+          studentName: studentName.trim() || 'Calon Siswa',
+          candidateNumber: candidateNumber.trim() || undefined,
+          schoolName: schoolCoordinate.display_name,
+          schoolCoords: [schoolCoordinate.lat, schoolCoordinate.lon],
+          homeAddress: homePoint.display_name,
+          homeCoords: [homePoint.lat, homePoint.lon],
+          distanceMeters: calc.meters,
+          distanceKm: calc.kilometers,
+          zoningTier: evaluateZoningStatus(calc.meters).tier,
+          createdAt: Date.now()
+        };
+        const updated = HistoryStorage.save(newEntry);
+        setHistoryList(updated);
+      } else {
+        setDistanceData(null);
+        setZoningStatus(null);
+      }
+
+      // 2. Pindai ulang seluruh banjar dalam radius maksimal dari sekolah baru
+      if (showRadiusRings && activeRadiusList.length > 0) {
+        const radM = maxActiveRadius;
+        setLoadingBanjars(true);
+
+        // a. Pindai dataset offline lengkap Kota Denpasar (0 ms respons, langsung muncul)
+        const localMatches: BanjarNode[] = BANJAR_DENPASAR_DATA.map((b) => {
+          const dist = calculatePreciseDistanceMeters(schoolCoordinate.lat, schoolCoordinate.lon, b.lat, b.lon);
+          return {
+            ...b,
+            distanceMeters: dist.meters,
+            distanceKm: dist.kilometers
+          };
+        }).filter(b => (b.distanceMeters || 0) <= radM);
+
+        if (activeRequestIdRef.current === currentReqId) {
+          setBanjarNodes(localMatches);
+        }
+
+        // b. Query peladen Overpass OSM multi-tag dengan pembatalan request (AbortController)
+        const fetchOsmBanjars = async () => {
+          try {
+            const query = `[out:json][timeout:30];(
+              node(around:${radM},${schoolCoordinate.lat},${schoolCoordinate.lon})["place"~"hamlet|village|suburb|neighbourhood|quarter|locality"];
+              node(around:${radM},${schoolCoordinate.lat},${schoolCoordinate.lon})["amenity"="community_centre"]["name"~"Banjar|Bale|Balai",i];
+              node(around:${radM},${schoolCoordinate.lat},${schoolCoordinate.lon})["name"~"Banjar|Dusun",i];
+            );out center;`;
+            
+            const endpoints = [
+              'https://overpass-api.de/api/interpreter',
+              'https://overpass.kumi.systems/api/interpreter',
+              'https://maps.mail.ru/osm/tools/overpass/api/interpreter'
+            ];
+
+            let osmNodes: BanjarNode[] = [];
+            for (const ep of endpoints) {
+              if (activeRequestIdRef.current !== currentReqId || controller.signal.aborted) {
+                return;
+              }
+              try {
+                const res = await fetch(ep, {
+                  method: 'POST',
+                  body: `data=${encodeURIComponent(query)}`,
+                  signal: controller.signal
+                });
+                if (res.ok) {
+                  const data = await res.json();
+                  if (activeRequestIdRef.current !== currentReqId || controller.signal.aborted) {
+                    return;
+                  }
+                  if (data && data.elements && data.elements.length > 0) {
+                    osmNodes = data.elements
+                      .filter((e: any) => e.tags && e.tags.name)
+                      .map((e: any) => {
+                        const lat = e.center ? e.center.lat : e.lat;
+                        const lon = e.center ? e.center.lon : e.lon;
+                        const dist = calculatePreciseDistanceMeters(schoolCoordinate.lat, schoolCoordinate.lon, lat, lon);
+                        return {
+                          id: e.id,
+                          name: e.tags.name,
+                          subdistrict: e.tags['addr:subdistrict'] || e.tags.is_in || 'Wilayah Teridentifikasi',
+                          village: e.tags['addr:village'] || e.tags['addr:suburb'],
+                          lat,
+                          lon,
+                          type: e.tags.place || 'banjar',
+                          distanceMeters: dist.meters,
+                          distanceKm: dist.kilometers
+                        };
+                      })
+                      .filter((e: BanjarNode) => (e.distanceMeters || 0) <= radM);
+                    break;
+                  }
+                }
+              } catch (e: any) {
+                if (e.name === 'AbortError') {
+                  return;
+                }
+                console.warn(`Endpoint ${ep} gagal`, e);
+              }
+            }
+
+            if (activeRequestIdRef.current !== currentReqId || controller.signal.aborted) {
+              return;
+            }
+
+            const combined = [...localMatches];
+            osmNodes.forEach(item => {
+              const normName = item.name.toLowerCase().replace(/^(banjar|bale banjar|balai banjar|dusun|kelurahan|desa)\s+/, '').trim();
+              const exists = combined.some(c => {
+                const cNorm = c.name.toLowerCase().replace(/^(banjar|bale banjar|balai banjar|dusun|kelurahan|desa)\s+/, '').trim();
+                return cNorm === normName || c.name.toLowerCase() === item.name.toLowerCase();
+              });
+              if (!exists) {
+                combined.push(item);
+              }
+            });
+
+            // Filter ketat dan pastikan jarak dihitung presisi terhadap koordinat sekolah aktif
+            const strictlyFiltered = combined
+              .map(item => {
+                const dist = calculatePreciseDistanceMeters(schoolCoordinate.lat, schoolCoordinate.lon, item.lat, item.lon);
+                return {
+                  ...item,
+                  distanceMeters: dist.meters,
+                  distanceKm: dist.kilometers
+                };
+              })
+              .filter(item => (item.distanceMeters || 0) <= radM)
+              .sort((a, b) => (a.distanceMeters || 0) - (b.distanceMeters || 0));
+
+            if (activeRequestIdRef.current === currentReqId) {
+              setBanjarNodes(strictlyFiltered);
+            }
+          } catch (err: any) {
+            if (err.name !== 'AbortError') {
+              console.warn('Overpass OSM query issue:', err);
+            }
+          } finally {
+            if (activeRequestIdRef.current === currentReqId) {
+              setLoadingBanjars(false);
+            }
+          }
+        };
+
+        fetchOsmBanjars();
+      } else {
+        setBanjarNodes([]);
+      }
+
+      // Transisi selesai, hilangkan indikator loading
+      if (activeRequestIdRef.current === currentReqId) {
+        setIsSyncingSchool(false);
+      }
+    }, 300); // Jeda 300ms tepat sesuai konfirmasi pengguna
+
+    return () => {
+      if (syncTimeoutRef.current) {
+        clearTimeout(syncTimeoutRef.current);
+      }
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
+    };
+  }, [selectedSchool, homePoint, activeRadiusList, showRadiusRings, schoolCoordinate, maxActiveRadius]);
+
+  // Toggle multi-select radius preset
+  const toggleRadiusSelection = (meters: number) => {
+    setActiveRadiusList(prev => {
+      if (prev.includes(meters)) {
+        return prev.filter(m => m !== meters);
+      } else {
+        return [...prev, meters].sort((a, b) => a - b);
+      }
+    });
+  };
+
+  // Tambah radius kustom
+  const handleAddCustomRadius = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const num = parseFloat(customRadiusInput.replace(',', '.'));
+    if (!num || isNaN(num) || num <= 0) return;
+
+    const meters = customRadiusUnit === 'km' ? Math.round(num * 1000) : Math.round(num);
+    if (!activeRadiusList.includes(meters)) {
+      setActiveRadiusList(prev => [...prev, meters].sort((a, b) => a - b));
+    }
+    setCustomRadiusInput('');
+    setShowRadiusRings(true);
+  };
+
+  // Hapus radius tertentu dari list
+  const removeRadius = (meters: number) => {
+    setActiveRadiusList(prev => prev.filter(m => m !== meters));
+  };
+
+  // Reverse geocode when picking on map
+  const handleMapPick = async (lat: number, lon: number) => {
+    const formattedCoord = `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+    
+    if (pickingTarget === 'home') {
+      const fallbackName = `Titik Rumah (${formattedCoord})`;
+      setHomePoint({ lat, lon, display_name: fallbackName });
+      setHomeAddress(fallbackName);
+      setPickingTarget(null);
+
+      try {
+        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.display_name) {
+            setHomePoint({ lat, lon, display_name: data.display_name });
+            setHomeAddress(data.display_name);
+          }
+        }
+      } catch (err) {
+        console.warn('Reverse geocode error:', err);
+      }
+    } else if (pickingTarget === 'school') {
+      const customSchool: SchoolData = {
+        id: `custom-${Date.now()}`,
+        name: `Lokasi Sekolah (${formattedCoord})`,
+        level: 'SMP',
+        city: 'Kustom',
+        province: 'Indonesia',
+        lat,
+        lon,
+        address: formattedCoord
+      };
+      setBanjarNodes([]);
+      setSelectedSchool(customSchool);
+      setSchoolQuery(customSchool.name);
+      setPickingTarget(null);
+
+      try {
+        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.display_name) {
+            const updatedSchool = {
+              ...customSchool,
+              name: data.name || data.display_name.split(',')[0] || customSchool.name,
+              address: data.display_name
+            };
+            setSelectedSchool(updatedSchool);
+            setSchoolQuery(updatedSchool.name);
+          }
+        }
+      } catch {}
     }
   };
 
+  // Restore item from history
+  const loadHistoryItem = (item: SavedCandidate) => {
+    setStudentName(item.studentName);
+    setCandidateNumber(item.candidateNumber || '');
+    
+    const matched = PRESET_SCHOOLS.find(s => s.name === item.schoolName);
+    const restoredSchool: SchoolData = matched || {
+      id: `restored-${item.id}`,
+      name: item.schoolName,
+      level: 'SMP',
+      city: '',
+      province: '',
+      lat: item.schoolCoords[0],
+      lon: item.schoolCoords[1],
+      address: item.schoolName
+    };
+    setBanjarNodes([]);
+    setSelectedSchool(restoredSchool);
+    setSchoolQuery(item.schoolName);
+
+    setHomePoint({
+      lat: item.homeCoords[0],
+      lon: item.homeCoords[1],
+      display_name: item.homeAddress
+    });
+    setHomeAddress(item.homeAddress);
+    setShowHistoryModal(false);
+  };
+
   return (
-    <div className={cn("w-full min-h-screen font-sans relative flex flex-col scroll-smooth transition-colors", isDark ? "bg-[#0A0C10] text-slate-100" : "bg-slate-50 text-slate-900")}>
-      {/* Simulated Map Background */}
-      {isDark ? (
-        <div className="absolute inset-0 opacity-40 pointer-events-none fixed">
-          <div className="absolute inset-0" style={{ backgroundImage: 'radial-gradient(#1e293b 1px, transparent 1px)', backgroundSize: '40px 40px' }}></div>
-        </div>
-      ) : (
-        <div className="absolute inset-0 opacity-20 pointer-events-none fixed">
-          <div className="absolute inset-0" style={{ backgroundImage: 'radial-gradient(#cbd5e1 1px, transparent 1px)', backgroundSize: '40px 40px' }}></div>
-        </div>
-      )}
-
-      <div className="relative z-10 w-full flex flex-col min-h-screen">
-        {/* Header */}
-        <header className={cn("flex flex-wrap items-center justify-between px-6 lg:px-8 py-4 lg:py-6 border-b backdrop-blur-md z-20 sticky top-0 transition-colors", isDark ? "border-white/10 bg-[#0A0C10]/80" : "border-slate-200 bg-white/90")}>
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-blue-500 rounded-lg flex items-center justify-center shrink-0">
-              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white"><path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"/></svg>
-            </div>
-            <div>
-              <h1 className={cn("text-xl font-bold tracking-tight", isDark ? "text-white" : "text-slate-900")}>SkyDist <span className="text-blue-500 font-normal">Pro</span></h1>
-              <p className={cn("text-[10px] uppercase tracking-[0.2em]", isDark ? "text-slate-400" : "text-slate-500")}>Pengukuran Jarak Udara Presisi</p>
-            </div>
+    <div className={cn("w-full min-h-screen flex flex-col font-sans transition-colors duration-200", isDark ? "bg-[#0A0C10] text-slate-100" : "bg-slate-50 text-slate-900")}>
+      
+      {/* Top Bar Contract (1 row, 3 distinct zones, whitespace-nowrap) */}
+      <header className={cn("sticky top-0 z-40 px-6 py-3.5 border-b backdrop-blur-md flex items-center justify-between gap-8 transition-colors", isDark ? "bg-[#0A0C10]/90 border-slate-800" : "bg-white/95 border-slate-200")}>
+        
+        {/* Zone 1: Single text element Brand wordmark */}
+        <div className="flex items-center gap-3 shrink-0">
+          <div className="w-9 h-9 bg-blue-600 rounded-lg flex items-center justify-center text-white shadow-md shadow-blue-500/30">
+            <School className="w-5 h-5" />
           </div>
-          
-          <nav className="flex gap-4 sm:gap-6 text-sm font-medium mt-4 sm:mt-0 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0 hide-scrollbar">
-            <button 
-              type="button" 
-              onClick={() => setIsDark(!isDark)}
-              className={cn("transition-colors whitespace-nowrap", isDark ? "text-slate-400 hover:text-white" : "text-slate-500 hover:text-slate-900")}
-            >
-              Tema: {isDark ? 'Gelap' : 'Terang'}
-            </button>
-            <button 
-              type="button" 
-              onClick={() => setDistanceUnit(prev => prev === 'km' ? 'm' : 'km')}
-              className={cn("transition-colors whitespace-nowrap", isDark ? "text-slate-400 hover:text-white" : "text-slate-500 hover:text-slate-900")}
-            >
-              Satuan Jarak: {distanceUnit === 'km' ? 'KM' : 'Meter'}
-            </button>
-            <button 
-              type="button" 
-              onClick={() => setShowHistory(true)}
-              className={cn("transition-colors whitespace-nowrap", isDark ? "text-slate-400 hover:text-white" : "text-slate-500 hover:text-slate-900")}
-            >
-              Riwayat
-            </button>
-          </nav>
-        </header>
+          <span className="text-lg font-bold tracking-tight whitespace-nowrap">
+            SkyDist <span className="text-blue-500 font-semibold">SPMB Zonasi</span>
+          </span>
+        </div>
 
-        <main className="flex-1 flex flex-col p-4 lg:p-8 gap-6 relative z-10 max-w-7xl mx-auto w-full">
+        {/* Zone 2: Navigation Links & Actions */}
+        <nav className="hidden md:flex items-center gap-6 text-sm font-medium">
+          <span className="text-xs text-slate-400 dark:text-slate-500 flex items-center gap-1.5">
+            <ShieldCheck className="w-3.5 h-3.5 text-blue-500" />
+            SMP & SMA/SMK Negeri Kota Denpasar &bull; Geodesik WGS84 Jalur Zonasi
+          </span>
+        </nav>
+
+        {/* Zone 3: Primary Control Actions */}
+        <div className="flex items-center gap-3 shrink-0">
+          <button
+            type="button"
+            onClick={() => setShowHistoryModal(true)}
+            className={cn("px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 border transition-colors whitespace-nowrap shrink-0", isDark ? "bg-slate-900 border-slate-800 hover:bg-slate-800 text-slate-300" : "bg-white border-slate-200 hover:bg-slate-100 text-slate-700")}
+          >
+            <History className="w-3.5 h-3.5 text-blue-500" />
+            <span>Riwayat ({historyList.length})</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsDark(!isDark)}
+            className={cn("px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors whitespace-nowrap shrink-0", isDark ? "bg-slate-900 border-slate-800 hover:bg-slate-800 text-slate-300" : "bg-white border-slate-200 hover:bg-slate-100 text-slate-700")}
+            title="Ganti Tema Warna"
+          >
+            {isDark ? 'Mode Terang' : 'Mode Gelap'}
+          </button>
+
+          {distanceData && (
+            <button
+              type="button"
+              onClick={() => setShowPrintModal(true)}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg shadow-md shadow-blue-500/20 flex items-center gap-2 transition-all whitespace-nowrap shrink-0"
+            >
+              <Printer className="w-3.5 h-3.5" />
+              <span>Cetak Bukti Verifikasi</span>
+            </button>
+          )}
+        </div>
+      </header>
+
+      {/* Main Workspace Layout */}
+      <main className="flex-1 flex flex-col lg:flex-row w-full max-w-[1650px] mx-auto p-4 lg:p-6 gap-6 relative">
+        
+        {/* Left Side: SPMB Input & Verification Control Panel */}
+        <div className="w-full lg:w-[490px] xl:w-[510px] shrink-0 flex flex-col gap-5">
           
-          {/* Top Control Panel */}
-          <div id="control-panel" className="w-full flex flex-col lg:flex-row lg:flex-wrap items-stretch lg:items-start gap-6 shrink-0">
-            <div className={cn("flex-1 min-w-[320px] rounded-2xl p-6 backdrop-blur-xl shrink-0 flex flex-col border transition-colors", isDark ? "bg-slate-900/50 border-white/10" : "bg-white border-slate-200 shadow-sm")}>
-              
-              {/* Custom Tabs Navigation */}
-              <div className={cn("flex w-full mb-6 p-1 rounded-xl border transition-colors", isDark ? "bg-black/40 border-white/5" : "bg-slate-100 border-slate-200")}>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('distance')}
-                  className={cn(
-                    "flex-1 py-2.5 text-sm font-semibold rounded-lg transition-all",
-                    activeTab === 'distance' ? "bg-blue-600 text-white shadow-md" : (isDark ? "text-slate-400 hover:text-white hover:bg-white/5" : "text-slate-500 hover:text-slate-900 hover:bg-white/50")
-                  )}
+          {/* Card: Pemilihan Sekolah Lengkap (Dropdown Langsung + Input Pencarian) */}
+          <div className={cn("p-5 rounded-2xl border transition-colors shadow-sm flex flex-col gap-4 relative overflow-hidden", isDark ? "bg-slate-900/60 border-slate-800" : "bg-white border-slate-200")}>
+            
+            {/* Indikator Sinkronisasi Halus (Muncul saat ganti sekolah selama 300ms) */}
+            {isSyncingSchool && (
+              <div className="absolute top-0 left-0 right-0 h-1 bg-blue-500/30 overflow-hidden">
+                <div className="h-full bg-blue-500 animate-pulse w-full"></div>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between border-b pb-3 border-slate-200 dark:border-slate-800">
+              <div className="flex items-center gap-2">
+                <School className="w-4 h-4 text-red-500" />
+                <h2 className="text-sm font-bold uppercase tracking-wider">1. Sekolah Tujuan (Titik A)</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPickingTarget(pickingTarget === 'school' ? null : 'school')}
+                className={cn("text-xs px-2.5 py-1 rounded-md border font-medium flex items-center gap-1 transition-all", pickingTarget === 'school' ? "bg-red-500 text-white border-red-500 shadow-sm" : (isDark ? "bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700" : "bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200"))}
+              >
+                <MapPin className="w-3 h-3 text-red-400" />
+                {pickingTarget === 'school' ? 'Klik Peta...' : 'Pilih di Peta'}
+              </button>
+            </div>
+
+            {/* Dropdown Pemilih Langsung (SMP Negeri 1-17 & SMA/SMK Negeri Kota Denpasar) */}
+            <div>
+              <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1.5 block">
+                Pilih Sekolah Negeri Kota Denpasar (SMP 1-17 & SMA/SMK Lengkap)
+              </label>
+              <div className="relative">
+                <select
+                  value={selectedSchool?.id || ''}
+                  onChange={(e) => {
+                    const match = PRESET_SCHOOLS.find(s => s.id === e.target.value);
+                    if (match) {
+                      setBanjarNodes([]);
+                      setSelectedSchool(match);
+                      setSchoolQuery(match.name);
+                    }
+                  }}
+                  className={cn("w-full px-3 py-2.5 rounded-xl text-sm border outline-none font-medium appearance-none cursor-pointer transition-colors pr-9", isDark ? "bg-slate-950 border-slate-800 text-slate-100 focus:border-blue-500" : "bg-slate-50 border-slate-200 text-slate-900 focus:border-blue-500")}
                 >
-                  Hitung Jarak
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('radius')}
-                  className={cn(
-                    "flex-1 py-2.5 text-sm font-semibold rounded-lg transition-all",
-                    activeTab === 'radius' ? "bg-blue-600 text-white shadow-md" : (isDark ? "text-slate-400 hover:text-white hover:bg-white/5" : "text-slate-500 hover:text-slate-900 hover:bg-white/50")
-                  )}
-                >
-                  Analisis Radius
-                </button>
+                  <optgroup label="📍 SMP NEGERI KOTA DENPASAR (1 s.d. 17 LENGKAP)">
+                    {SMP_NEGERI_DENPASAR.map((sch) => (
+                      <option key={sch.id} value={sch.id}>
+                        {sch.name} - {sch.address.split(',')[0]}
+                      </option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="📍 SMA & SMK NEGERI SE-KOTA DENPASAR (SMAN 1-11 & SMKN 1-5)">
+                    {SMA_SMK_DENPASAR.map((sch) => (
+                      <option key={sch.id} value={sch.id}>
+                        {sch.name} - {sch.address.split(',')[0]}
+                      </option>
+                    ))}
+                  </optgroup>
+                </select>
+                <ChevronDown className="w-4 h-4 text-slate-400 absolute right-3 top-3 pointer-events-none" />
+              </div>
+            </div>
+
+            {/* School Search Input with Autocomplete */}
+            <div className="relative">
+              <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1.5 flex items-center justify-between">
+                <span>Atau Cari Manual Sekolah Negeri Kota Denpasar</span>
+                <span className="text-[10px] text-blue-500 cursor-pointer" onClick={() => setShowSchoolDropdown(!showSchoolDropdown)}>
+                  {showSchoolDropdown ? 'Tutup Daftar' : 'Tampilkan Semua'}
+                </span>
+              </label>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={schoolQuery}
+                  onChange={(e) => {
+                    setSchoolQuery(e.target.value);
+                    setShowSchoolDropdown(true);
+                  }}
+                  onFocus={() => setShowSchoolDropdown(true)}
+                  placeholder="Ketik nama SMP / SMA / SMK Negeri Denpasar..."
+                  className={cn("w-full pl-9 pr-4 py-2 rounded-xl text-xs border outline-none transition-colors", isDark ? "bg-black/40 border-slate-800 text-slate-100 focus:border-blue-500" : "bg-slate-50 border-slate-200 text-slate-900 focus:border-blue-500")}
+                />
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
               </div>
 
-              {activeTab === 'distance' ? (
-                <>
-                  <h2 className={cn("text-sm font-semibold uppercase tracking-wider mb-4", isDark ? "text-slate-400" : "text-slate-500")}>Mencari Jarak 2 Titik</h2>
-                  <form onSubmit={handleCalculate} className="space-y-0">
-                    <div className="space-y-4">
-                      <LocationInput
-                        id="loc1"
-                        label="Titik Keberangkatan (A)"
-                        placeholder="Misal: Monas, Jakarta"
-                        value={loc1}
-                        onChange={setLoc1}
-                        onSelect={setSelectedLoc1}
-                        dotColor="bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]"
-                        isDark={isDark}
-                        onMapClickRequest={() => {
-                          const newTarget = selectingTarget === 'loc1' ? null : 'loc1';
-                          setSelectingTarget(newTarget);
-                          if (newTarget) document.getElementById('map-view')?.scrollIntoView({ behavior: 'smooth' });
-                        }}
-                        isSelectingMapLocation={selectingTarget === 'loc1'}
-                      />
-
-                      <div className="flex justify-center py-2">
-                        <div className={cn("h-8 w-[1px] relative", isDark ? "bg-white/10" : "bg-slate-200")}>
-                          <div className={cn("absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 p-1 rounded-full border", isDark ? "bg-slate-900 border-white/10 text-slate-400" : "bg-white border-slate-200 text-slate-500")}>
-                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/></svg>
-                          </div>
-                        </div>
+              {showSchoolDropdown && schoolSuggestions.length > 0 && (
+                <div className={cn("absolute top-full left-0 right-0 mt-1.5 rounded-xl border shadow-xl z-50 max-h-60 overflow-y-auto", isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200")}>
+                  {schoolSuggestions.map((s) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => {
+                        setBanjarNodes([]);
+                        setSelectedSchool(s);
+                        setSchoolQuery(s.name);
+                        setShowSchoolDropdown(false);
+                      }}
+                      className={cn("w-full text-left px-3.5 py-2.5 border-b last:border-none flex items-start justify-between gap-2 text-xs transition-colors", isDark ? "hover:bg-slate-800 border-slate-800/60" : "hover:bg-slate-50 border-slate-100")}
+                    >
+                      <div>
+                        <p className="font-semibold text-slate-900 dark:text-slate-100">{s.name}</p>
+                        <p className="text-[11px] text-slate-500">{s.address}</p>
                       </div>
+                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-500 font-bold shrink-0">
+                        {s.level}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
 
-                      <LocationInput
-                        id="loc2"
-                        label="Titik Tujuan (B)"
-                        placeholder="Misal: Gedung Sate, Bandung"
-                        value={loc2}
-                        onChange={setLoc2}
-                        onSelect={setSelectedLoc2}
-                        dotColor="bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]"
-                        isDark={isDark}
-                        onMapClickRequest={() => {
-                          const newTarget = selectingTarget === 'loc2' ? null : 'loc2';
-                          setSelectingTarget(newTarget);
-                          if (newTarget) document.getElementById('map-view')?.scrollIntoView({ behavior: 'smooth' });
-                        }}
-                        isSelectingMapLocation={selectingTarget === 'loc2'}
-                      />
-                    </div>
+            {selectedSchool && (
+              <div className={cn("p-3 rounded-xl border text-xs flex flex-col gap-1 transition-all", isDark ? "bg-slate-950/60 border-slate-800 text-slate-300" : "bg-slate-50 border-slate-200 text-slate-700")}>
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-slate-900 dark:text-slate-100">{selectedSchool.name}</span>
+                  <span className="font-mono text-[10px] text-slate-400">{selectedSchool.lat.toFixed(6)}, {selectedSchool.lon.toFixed(6)}</span>
+                </div>
+                <p className="text-[11px] text-slate-500">{selectedSchool.address}</p>
+              </div>
+            )}
+          </div>
 
+          {/* Card: Pengaturan Multi-Radius & Input Radius Kustom */}
+          <div className={cn("p-5 rounded-2xl border transition-colors shadow-sm flex flex-col gap-3.5 relative overflow-hidden", isDark ? "bg-slate-900/60 border-slate-800" : "bg-white border-slate-200")}>
+            
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                <Compass className="w-4 h-4 text-blue-500" /> Multi-Radius & Pemindaian Seluruh Banjar
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowRadiusRings(!showRadiusRings)}
+                className={cn("text-[11px] px-2.5 py-1 rounded font-medium border transition-colors", showRadiusRings ? "bg-blue-600 text-white border-blue-600" : "bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-300 dark:border-slate-700")}
+              >
+                {showRadiusRings ? 'Radius Aktif' : 'Sembunyikan'}
+              </button>
+            </div>
+
+            {/* Indikator Loading Sinkronisasi Halus dengan teks status */}
+            {isSyncingSchool && (
+              <div className={cn("p-2 rounded-xl border text-xs flex items-center gap-2 animate-pulse", isDark ? "bg-blue-950/40 border-blue-900/60 text-blue-400" : "bg-blue-50 border-blue-200 text-blue-700")}>
+                <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                <span className="text-[11px] font-medium">
+                  Menyelaraskan ke {selectedSchool?.name || 'sekolah baru'} & memindai ulang wilayah...
+                </span>
+              </div>
+            )}
+
+            {showRadiusRings && (
+              <>
+                <div>
+                  <div className="flex items-center justify-between text-xs mb-1.5">
+                    <span className="font-medium text-slate-600 dark:text-slate-300">Pilih Beberapa Radius Sekaligus:</span>
+                    <span className="text-[10px] text-slate-400">Klik untuk aktif / non-aktif</span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {[500, 1000, 1500, 2000, 2500, 3000, 5000].map((r) => {
+                      const isSelected = activeRadiusList.includes(r);
+                      return (
+                        <button
+                          key={r}
+                          type="button"
+                          onClick={() => toggleRadiusSelection(r)}
+                          className={cn(
+                            "px-2.5 py-1.5 rounded-lg text-xs font-mono font-bold transition-all border flex items-center gap-1.5",
+                            isSelected
+                              ? "bg-blue-600 border-blue-600 text-white shadow-sm"
+                              : (isDark ? "bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200 hover:bg-slate-750" : "bg-slate-100 border-slate-200 text-slate-600 hover:text-slate-900")
+                          )}
+                        >
+                          <span className={cn("w-1.5 h-1.5 rounded-full", isSelected ? "bg-white" : "bg-slate-400")} />
+                          {r >= 1000 ? `${(r / 1000).toLocaleString('id-ID')} km` : `${r} m`}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Input Mengetik Langsung Radius Kustom */}
+                <form onSubmit={handleAddCustomRadius} className="pt-2 border-t border-slate-200 dark:border-slate-800 flex flex-col gap-2">
+                  <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 flex items-center justify-between">
+                    <span>Ketik Radius Kustom Yang Diinginkan:</span>
+                    <span className="text-[10px] text-slate-400">Misal: 1200 m atau 1.8 km</span>
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      step="any"
+                      min="1"
+                      value={customRadiusInput}
+                      onChange={(e) => setCustomRadiusInput(e.target.value)}
+                      placeholder="Masukkan angka radius..."
+                      className={cn("flex-1 px-3 py-1.5 text-xs rounded-xl border outline-none font-mono transition-colors", isDark ? "bg-black/40 border-slate-800 text-slate-100 focus:border-blue-500" : "bg-slate-50 border-slate-200 text-slate-900 focus:border-blue-500")}
+                    />
+                    <select
+                      value={customRadiusUnit}
+                      onChange={(e) => setCustomRadiusUnit(e.target.value as 'm' | 'km')}
+                      className={cn("px-2.5 py-1.5 text-xs rounded-xl border font-bold outline-none cursor-pointer", isDark ? "bg-slate-950 border-slate-800 text-slate-200" : "bg-slate-50 border-slate-200 text-slate-800")}
+                    >
+                      <option value="m">Meter</option>
+                      <option value="km">Kilometer (KM)</option>
+                    </select>
                     <button
                       type="submit"
-                      disabled={loading}
-                      className="w-full mt-6 bg-blue-600 hover:bg-blue-500 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-blue-500/20 transition-all flex items-center justify-center gap-2"
+                      disabled={!customRadiusInput.trim()}
+                      className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1 shadow-sm transition-all disabled:opacity-40"
                     >
-                      {loading ? (
-                        <>
-                          <Loader2 className="w-5 h-5 animate-spin" />
-                          Mencari...
-                        </>
-                      ) : (
-                        <>
-                          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>
-                          Hitung Jarak
-                        </>
-                      )}
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Tambah</span>
                     </button>
-                  </form>
-                </>
-              ) : (
-                <>
-                  <h2 className={cn("text-sm font-semibold uppercase tracking-wider mb-4", isDark ? "text-slate-400" : "text-slate-500")}>Pemindaian Area</h2>
-                  <div className="space-y-5 flex-1 flex flex-col">
-                    <LocationInput
-                      id="loc1-radius"
-                      label="Titik Acuan Area (A)"
-                      placeholder="Misal: Monas, Jakarta"
-                      value={loc1}
-                      onChange={setLoc1}
-                      onSelect={setSelectedLoc1}
-                      dotColor="bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]"
-                      isDark={isDark}
-                      onMapClickRequest={() => {
-                        const newTarget = selectingTarget === 'loc1' ? null : 'loc1';
-                        setSelectingTarget(newTarget);
-                        if (newTarget) document.getElementById('map-view')?.scrollIntoView({ behavior: 'smooth' });
-                      }}
-                      isSelectingMapLocation={selectingTarget === 'loc1'}
-                    />
-
-                    <div className="mt-4">
-                      <div className="flex justify-between text-xs mb-3 font-semibold items-center">
-                        <span className={isDark ? "text-slate-400" : "text-slate-500"}>Radius Pengamatan</span>
-                        <div className="flex items-center gap-2">
-                          <input 
-                            type="number" 
-                            min="1" 
-                            max={distanceUnit === 'km' ? 50 : 50000} 
-                            value={radiusValue}
-                            onChange={(e) => setRadiusValue(Number(e.target.value))}
-                            className={cn(
-                              "w-20 px-2 py-1 text-right text-sm rounded border outline-none font-bold text-blue-500 focus:border-blue-500 transition-colors",
-                              isDark ? "bg-black/40 border-white/10" : "bg-white border-slate-300"
-                            )}
-                          />
-                          <span className="text-blue-500 font-bold uppercase">{distanceUnit}</span>
-                        </div>
-                      </div>
-                      <input 
-                        type="range" min="1" max={distanceUnit === 'km' ? 50 : 50000} step={distanceUnit === 'km' ? "1" : "100"} 
-                        value={radiusValue} 
-                        onChange={(e) => {
-                          setRadiusValue(Number(e.target.value));
-                        }} 
-                        className={cn("w-full accent-blue-500 cursor-pointer h-2 rounded-lg appearance-none transition-colors", isDark ? "bg-slate-800" : "bg-slate-200")} 
-                      />
-                    </div>
-
-                    <div className="mt-auto pt-4">
-                      <button
-                        type="button"
-                        onClick={handleSearchRadius}
-                        disabled={loadingPlaces}
-                        className="w-full bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-500/20 font-bold py-3.5 rounded-xl transition-all flex items-center justify-center gap-2"
-                      >
-                        {loadingPlaces ? <Loader2 className="w-5 h-5 animate-spin" /> : <Radar className="w-5 h-5" />}
-                        {loadingPlaces ? "Memindai Area..." : "Pindai Wilayah"}
-                      </button>
-                    </div>
-
-                    {showRadius && !loadingPlaces && !error && (
-                      <div className={cn("text-[11px] p-2.5 rounded-lg text-center font-medium border", isDark ? (nearbyPlaces.length > 0 ? "text-emerald-400 bg-emerald-950/40 border-emerald-900/60" : "text-amber-400 bg-amber-950/40 border-amber-900/60") : (nearbyPlaces.length > 0 ? "text-emerald-700 bg-emerald-50 border-emerald-200" : "text-amber-700 bg-amber-50 border-amber-200"))}>
-                         {nearbyPlaces.length > 0 
-                           ? `Ditemukan ${nearbyPlaces.length} wilayah dalam radius ${radiusValue.toLocaleString("id-ID")} ${distanceUnit.toUpperCase()}.`
-                           : `Tidak ada daerah/wilayah yang teridentifikasi secara presisi dalam radius ${radiusValue.toLocaleString("id-ID")} ${distanceUnit.toUpperCase()}. Coba merubah titik atau perbesar radius pengamatan.`}
-                      </div>
-                    )}
                   </div>
-                </>
-              )}
+                </form>
 
-              {error && (
-                <div className={cn("mt-4 p-3 text-xs rounded-lg border", isDark ? "text-red-400 bg-red-950/50 border-red-900/50" : "text-red-700 bg-red-50 border-red-200")}>
-                  {error}
+                {/* Lingkaran Radius Aktif Saat Ini */}
+                <div className="pt-1 flex flex-wrap items-center gap-1.5">
+                  <span className="text-[10px] text-slate-400 mr-1">Lingkaran Aktif:</span>
+                  {activeRadiusList.length === 0 ? (
+                    <span className="text-[10px] text-amber-500 italic">Pilih atau tambah minimal 1 radius</span>
+                  ) : (
+                    activeRadiusList.map((rad, idx) => (
+                      <span
+                        key={rad}
+                        className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-mono font-bold border", isDark ? "bg-slate-950 border-slate-700 text-slate-200" : "bg-slate-100 border-slate-300 text-slate-800")}
+                      >
+                        <span
+                          className="w-2 h-2 rounded-full shrink-0"
+                          style={{ backgroundColor: RADIUS_COLORS[idx % RADIUS_COLORS.length].stroke }}
+                        />
+                        {rad >= 1000 ? `${(rad / 1000).toLocaleString('id-ID')} km` : `${rad} m`}
+                        <button
+                          type="button"
+                          onClick={() => removeRadius(rad)}
+                          className="hover:text-red-500 ml-0.5 p-0.5"
+                          title="Hapus radius ini"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </span>
+                    ))
+                  )}
+                </div>
+
+                <div className={cn("p-2.5 rounded-xl border text-[11px] flex items-center justify-between", isDark ? "bg-slate-950/40 border-slate-800 text-slate-400" : "bg-blue-50/50 border-blue-200 text-slate-600")}>
+                  <span>
+                    {isSyncingSchool ? (
+                      <span className="text-blue-500 flex items-center gap-1">
+                        <Loader2 className="w-3 h-3 animate-spin" /> Menghitung ulang banjar di lokasi baru...
+                      </span>
+                    ) : (
+                      <>
+                        Ditemukan <strong className="text-blue-500 font-mono text-xs">{visibleBanjars.length} titik banjar/kelurahan</strong> di dalam radius luar ({maxActiveRadius >= 1000 ? `${(maxActiveRadius / 1000).toLocaleString('id-ID')} km` : `${maxActiveRadius} m`}).
+                      </>
+                    )}
+                  </span>
+                  {loadingBanjars && !isSyncingSchool && <Loader2 className="w-3.5 h-3.5 text-blue-500 animate-spin shrink-0" />}
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Card: Titik Domisili / Rumah Calon Siswa */}
+          <div className={cn("p-5 rounded-2xl border transition-colors shadow-sm flex flex-col gap-4 relative overflow-hidden", isDark ? "bg-slate-900/60 border-slate-800" : "bg-white border-slate-200")}>
+            <div className="flex items-center justify-between border-b pb-3 border-slate-200 dark:border-slate-800">
+              <div className="flex items-center gap-2">
+                <Home className="w-4 h-4 text-emerald-500" />
+                <h2 className="text-sm font-bold uppercase tracking-wider">2. Rumah Calon Siswa (Titik B)</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPickingTarget(pickingTarget === 'home' ? null : 'home')}
+                className={cn("text-xs px-2.5 py-1 rounded-md border font-medium flex items-center gap-1 transition-all", pickingTarget === 'home' ? "bg-emerald-600 text-white border-emerald-600 shadow-sm" : (isDark ? "bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700" : "bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200"))}
+              >
+                <MapPin className="w-3 h-3 text-emerald-400" />
+                {pickingTarget === 'home' ? 'Klik Peta...' : 'Pilih di Peta'}
+              </button>
+            </div>
+
+            {/* Student Name & Number */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 mb-1 block">
+                  Nama Siswa (Opsional)
+                </label>
+                <input
+                  type="text"
+                  value={studentName}
+                  onChange={(e) => setStudentName(e.target.value)}
+                  placeholder="Misal: Putu Arya"
+                  className={cn("w-full px-3 py-2 rounded-xl text-xs border outline-none", isDark ? "bg-black/40 border-slate-800 text-slate-100 focus:border-blue-500" : "bg-slate-50 border-slate-200 text-slate-900 focus:border-blue-500")}
+                />
+              </div>
+              <div>
+                <label className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 mb-1 block">
+                  NISN / No. Peserta
+                </label>
+                <input
+                  type="text"
+                  value={candidateNumber}
+                  onChange={(e) => setCandidateNumber(e.target.value)}
+                  placeholder="0078129381"
+                  className={cn("w-full px-3 py-2 rounded-xl text-xs border outline-none font-mono", isDark ? "bg-black/40 border-slate-800 text-slate-100 focus:border-blue-500" : "bg-slate-50 border-slate-200 text-slate-900 focus:border-blue-500")}
+                />
+              </div>
+            </div>
+
+            {/* Home Address Search & Coordinates */}
+            <div className="relative">
+              <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1.5 block">
+                Alamat Tempat Tinggal / Titik Koordinat GPS
+              </label>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={homeAddress}
+                  onChange={(e) => {
+                    setHomeAddress(e.target.value);
+                    setShowHomeDropdown(true);
+                  }}
+                  onFocus={() => setShowHomeDropdown(true)}
+                  placeholder="Ketik alamat rumah, banjar/desa, atau koordinat (-8.65, 115.21)"
+                  className={cn("w-full pl-9 pr-8 py-2.5 rounded-xl text-sm border outline-none transition-colors", isDark ? "bg-black/40 border-slate-800 text-slate-100 focus:border-blue-500" : "bg-slate-50 border-slate-200 text-slate-900 focus:border-blue-500")}
+                />
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                {searchingHome && <Loader2 className="w-4 h-4 text-blue-500 animate-spin absolute right-3 top-3" />}
+              </div>
+
+              {showHomeDropdown && homeSuggestions.length > 0 && (
+                <div className={cn("absolute top-full left-0 right-0 mt-1.5 rounded-xl border shadow-xl z-50 max-h-56 overflow-y-auto", isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200")}>
+                  {homeSuggestions.map((item, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => {
+                        setHomePoint(item);
+                        setHomeAddress(item.display_name);
+                        setShowHomeDropdown(false);
+                      }}
+                      className={cn("w-full text-left px-3.5 py-2.5 border-b last:border-none text-xs transition-colors", isDark ? "hover:bg-slate-800 border-slate-800/60 text-slate-300" : "hover:bg-slate-50 border-slate-100 text-slate-700")}
+                    >
+                      <p className="line-clamp-2">{item.display_name}</p>
+                      <p className="font-mono text-[10px] text-slate-400 mt-0.5">{item.lat.toFixed(5)}, {item.lon.toFixed(5)}</p>
+                    </button>
+                  ))}
                 </div>
               )}
             </div>
 
-            {points.length === 2 && activeTab === 'distance' && (
-              <div className={cn("flex-1 min-w-[280px] rounded-2xl p-6 shrink-0 flex flex-col justify-center border transition-colors", isDark ? "bg-slate-900/50 border-white/10" : "bg-white border-slate-200 shadow-sm")}>
-                <h2 className={cn("text-sm font-semibold uppercase tracking-wider mb-4", isDark ? "text-slate-400" : "text-slate-500")}>Data Koordinat & Lokasi</h2>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 text-[11px] font-mono">
-                  <div>
-                    <p className="text-red-500 font-bold mb-1">POINT A</p>
-                    <p className={cn("font-sans font-semibold line-clamp-1 mb-1", isDark ? "text-white" : "text-slate-900")} title={points[0].display_name}>{points[0].display_name.split(',')[0]}</p>
-                    <p className={isDark ? "text-slate-300" : "text-slate-600"}>Lat: {points[0].lat.toFixed(4)}°</p>
-                    <p className={isDark ? "text-slate-300" : "text-slate-600"}>Lon: {points[0].lon.toFixed(4)}°</p>
-                  </div>
-                  <div>
-                    <p className="text-emerald-500 font-bold mb-1">POINT B</p>
-                    <p className={cn("font-sans font-semibold line-clamp-1 mb-1", isDark ? "text-white" : "text-slate-900")} title={points[1].display_name}>{points[1].display_name.split(',')[0]}</p>
-                    <p className={isDark ? "text-slate-300" : "text-slate-600"}>Lat: {points[1].lat.toFixed(4)}°</p>
-                    <p className={isDark ? "text-slate-300" : "text-slate-600"}>Lon: {points[1].lon.toFixed(4)}°</p>
-                  </div>
+            {homePoint && (
+              <div className={cn("p-3 rounded-xl border text-xs flex flex-col gap-1", isDark ? "bg-slate-950/60 border-slate-800 text-slate-300" : "bg-slate-50 border-slate-200 text-slate-700")}>
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-emerald-600 dark:text-emerald-400">Titik Domisili Terpilih</span>
+                  <span className="font-mono text-[10px] text-slate-400">{homePoint.lat.toFixed(5)}, {homePoint.lon.toFixed(5)}</span>
                 </div>
+                <p className="text-[11px] text-slate-500 line-clamp-2">{homePoint.display_name}</p>
               </div>
             )}
           </div>
 
-          {/* Map Visualization Area */}
-          <div id="map-view" className={cn("w-full rounded-3xl relative overflow-hidden h-[75vh] md:h-[85vh] shrink-0 shadow-2xl flex flex-col group border", isDark ? "bg-black/40 border-white/10" : "bg-slate-200 border-slate-300")}>
-            
-            {/* Map Controls overlays */}
-            <div className={cn("absolute bottom-6 right-6 z-[400] flex flex-col gap-2 shadow-lg rounded-xl overflow-hidden backdrop-blur-md border", isDark ? "bg-slate-900/80 border-white/10" : "bg-white/90 border-slate-200")}>
-              <button 
+          {/* Verification Result Box */}
+          {distanceData && zoningStatus && (
+            <div className={cn("p-5 rounded-2xl border transition-all flex flex-col gap-3 relative overflow-hidden shadow-md", isDark ? "bg-slate-900 border-slate-700" : "bg-white border-blue-200")}>
+              
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                  Hasil Pengukuran Jarak Udara
+                </span>
+                <span className={cn("text-xs font-semibold px-2.5 py-1 rounded-full border transition-all", isSyncingSchool && "opacity-50", zoningStatus.badgeBg, zoningStatus.badgeBorder, zoningStatus.badgeText)}>
+                  {zoningStatus.title}
+                </span>
+              </div>
+
+              {/* Main Distance Display */}
+              <div className="flex items-baseline gap-3 my-1">
+                <span className={cn("text-4xl lg:text-5xl font-black font-mono tracking-tight tabular-nums transition-opacity text-slate-900 dark:text-white", isSyncingSchool && "opacity-40")}>
+                  {distanceData.formattedMeters}
+                </span>
+                <span className="text-xl font-bold text-blue-600 dark:text-blue-400 uppercase">
+                  Meter
+                </span>
+                <span className="text-sm font-mono text-slate-400">
+                  ({distanceData.formattedKm} km)
+                </span>
+              </div>
+
+              <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                {zoningStatus.description}
+              </p>
+
+              {/* Priority Bar Indicator */}
+              <div className="w-full bg-slate-200 dark:bg-slate-800 h-2 rounded-full overflow-hidden mt-1">
+                <div
+                  className={cn("h-full transition-all duration-500", zoningStatus.tier === 'ZONA_1' ? "bg-emerald-500" : zoningStatus.tier === 'ZONA_2' ? "bg-blue-500" : zoningStatus.tier === 'ZONA_3' ? "bg-amber-500" : "bg-rose-500")}
+                  style={{ width: `${zoningStatus.priorityScore}%` }}
+                />
+              </div>
+
+              <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1 border-t border-slate-200 dark:border-slate-800">
+                <span>Skor Prioritas: {zoningStatus.priorityScore}/100</span>
+                <span>Metode: Geodesik WGS84</span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Right Side: Leaflet Satellite Map Viewport */}
+        <div className="flex-1 min-h-[520px] lg:min-h-[720px] rounded-2xl border overflow-hidden relative shadow-lg flex flex-col border-slate-300 dark:border-slate-800">
+          
+          {/* Active Mode Notice / Picking Notification */}
+          {pickingTarget && (
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[500] bg-blue-600 text-white px-4 py-2 rounded-full shadow-2xl font-medium text-xs flex items-center gap-2 border border-blue-400 animate-pulse">
+              <MapPin className="w-4 h-4" />
+              <span>
+                Klik pada peta untuk menentukan posisi {pickingTarget === 'school' ? 'Sekolah' : 'Rumah Siswa'}
+              </span>
+              <button
                 type="button"
-                onClick={() => setMapType('satellite')}
-                className={cn(
-                   "flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors",
-                   mapType === 'satellite' ? "bg-blue-600/50 text-white font-semibold" : (isDark ? "text-slate-400 hover:bg-white/5 hover:text-white" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900")
-                )}
+                onClick={() => setPickingTarget(null)}
+                className="ml-2 hover:bg-blue-700 p-0.5 rounded"
               >
-                <Layers className="w-4 h-4" /> Satelit
-              </button>
-              <div className={cn("h-px w-full", isDark ? "bg-white/10" : "bg-slate-200")} />
-              <button 
-                type="button"
-                onClick={() => setMapType('street')}
-                className={cn(
-                   "flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors",
-                   mapType === 'street' ? "bg-blue-600/50 text-white font-semibold" : (isDark ? "text-slate-400 hover:bg-white/5 hover:text-white" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900")
-                )}
-              >
-                <MapIcon className="w-4 h-4" /> Peta Jalan
+                <X className="w-3.5 h-3.5" />
               </button>
             </div>
+          )}
 
-            {/* Large Result Display on Map */}
-            {distanceKm !== null && (
-              <div className="absolute top-6 left-6 z-[400] pointer-events-none">
-                <div className="flex justify-start">
-                  <div className={cn("backdrop-blur-md border px-6 py-4 rounded-2xl flex flex-col shadow-2xl pointer-events-auto transition-all duration-500 ease-out animate-in slide-in-from-top-4 fade-in", isDark ? "bg-black/60 border-blue-500/30" : "bg-white/90 border-blue-500/30")}>
-                    <p className="text-[10px] sm:text-[11px] uppercase tracking-[0.3em] text-blue-500 font-bold mb-1">Jarak Garis Lurus</p>
-                    <div className="flex items-baseline gap-2">
-                      <span className={cn("text-4xl sm:text-5xl font-black tracking-tighter", isDark ? "text-white" : "text-slate-900")}>{(distanceUnit === 'km' ? distanceKm : distanceKm * 1000).toLocaleString('id-ID', { maximumFractionDigits: 2 })}</span>
-                      <span className={cn("text-lg sm:text-xl font-medium uppercase", isDark ? "text-slate-400" : "text-slate-500")}>{distanceUnit}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {selectingTarget !== null && (
-              <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[400] pointer-events-none animate-bounce">
-                <div className="bg-blue-600 text-white px-4 py-2 rounded-full shadow-lg border border-blue-400 font-semibold flex items-center gap-2 items-center text-sm">
-                  <MapPin className="w-4 h-4 animate-pulse" />
-                  Klik pada peta untuk memilih lokasi...
-                </div>
-              </div>
-            )}
-
-            {selectingTarget === null && activeTab === 'distance' && (
-              <div className="absolute top-4 right-4 z-[400] flex gap-2 transition-opacity">
-                <button
-                  type="button"
-                  title="Pilih Titik Keberangkatan dari Peta"
-                  onClick={() => setSelectingTarget('loc1')}
-                  className={cn("p-3 rounded-full shadow-xl flex items-center justify-center transition-transform hover:scale-105 active:scale-95 border", isDark ? "bg-slate-900 border-red-500/30 hover:bg-slate-800" : "bg-white border-red-200 hover:bg-slate-50")}
-                >
-                  <MapPin className="w-5 h-5 text-red-500 shrink-0" />
-                </button>
-                <button
-                  type="button"
-                  title="Pilih Titik Tujuan dari Peta"
-                  onClick={() => setSelectingTarget('loc2')}
-                  className={cn("p-3 rounded-full shadow-xl flex items-center justify-center transition-transform hover:scale-105 active:scale-95 border", isDark ? "bg-slate-900 border-emerald-500/30 hover:bg-slate-800" : "bg-white border-emerald-200 hover:bg-slate-50")}
-                >
-                  <MapPin className="w-5 h-5 text-emerald-500 shrink-0" />
-                </button>
-              </div>
-            )}
-
-            {selectingTarget === null && activeTab === 'radius' && (
-              <div className="absolute top-4 right-4 z-[400] flex gap-2 transition-opacity">
-                <button
-                  type="button"
-                  title="Tentukan Titik Acuan Radius dari Peta"
-                  onClick={() => setSelectingTarget('loc1')}
-                  className={cn("p-3 rounded-full shadow-xl flex items-center justify-center transition-transform hover:scale-105 active:scale-95 border", isDark ? "bg-slate-900 border-red-500/30 hover:bg-slate-800" : "bg-white border-red-200 hover:bg-slate-50")}
-                >
-                  <Radar className="w-5 h-5 text-red-500 shrink-0" />
-                </button>
-              </div>
-            )}
-
-            <MapContainer 
-              center={[-2.5489, 118.0149]} // Center of Indonesia
-              zoom={5} 
-              scrollWheelZoom={true} 
-              className={cn("w-full h-full z-0!", selectingTarget !== null ? "cursor-crosshair" : "")}
-              zoomControl={false}
-              style={{ background: 'transparent' }}
+          {/* Map Layer Switcher */}
+          <div className={cn("absolute bottom-6 right-6 z-[400] flex flex-col gap-1.5 p-1 rounded-xl shadow-xl backdrop-blur-md border", isDark ? "bg-slate-900/90 border-slate-800" : "bg-white/95 border-slate-200")}>
+            <button
+              type="button"
+              onClick={() => setMapType('satellite')}
+              className={cn("px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors", mapType === 'satellite' ? "bg-blue-600 text-white" : (isDark ? "text-slate-400 hover:text-white" : "text-slate-600 hover:text-slate-900"))}
             >
-              {mapType === 'satellite' ? (
-                <TileLayer
-                  attribution='Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
-                  url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-                  maxZoom={18}
-                />
-              ) : (
-                <TileLayer
-                  attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                  maxZoom={19}
-                />
-              )}
+              <Layers className="w-3.5 h-3.5" />
+              <span>Satelit</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setMapType('street')}
+              className={cn("px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors", mapType === 'street' ? "bg-blue-600 text-white" : (isDark ? "text-slate-400 hover:text-white" : "text-slate-600 hover:text-slate-900"))}
+            >
+              <MapIcon className="w-3.5 h-3.5" />
+              <span>Jalan</span>
+            </button>
+          </div>
 
-              {/* Connect points with a line */}
-              {points.length === 2 && (
-                <Polyline 
-                  positions={[[points[0].lat, points[0].lon], [points[1].lat, points[1].lon]]} 
-                  color="#3b82f6" 
-                  weight={4}
-                  dashArray="10, 10"
-                  opacity={0.8}
-                />
-              )}
+          {/* Distance floating summary on map top-left */}
+          {distanceData && (
+            <div className={cn("absolute top-4 left-4 z-[400] p-3.5 rounded-xl border backdrop-blur-md shadow-xl flex items-center gap-3 transition-opacity", isSyncingSchool && "opacity-50", isDark ? "bg-slate-900/90 border-slate-800 text-white" : "bg-white/95 border-slate-200 text-slate-900")}>
+              <div className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse"></div>
+              <div>
+                <p className="text-[10px] uppercase font-bold text-slate-400">Jarak Garis Lurus Terukur</p>
+                <p className="text-xl font-black font-mono tabular-nums text-blue-600 dark:text-blue-400">
+                  {distanceData.formattedMeters} Meter
+                </p>
+              </div>
+            </div>
+          )}
 
-              {/* Render markers */}
-              {points.map((pt, idx) => (
-                <Marker key={idx} position={[pt.lat, pt.lon]} icon={idx === 0 ? redIcon : emeraldIcon}>
-                  <Tooltip permanent direction="top" offset={[0, -36]} className="bg-white/95 backdrop-blur-sm px-3 py-1.5 border-none shadow-lg rounded-lg text-slate-800 font-semibold text-sm whitespace-nowrap z-50">
-                    {pt.display_name.split(',')[0]}
-                  </Tooltip>
-                  <Popup className="custom-popup">
-                    <div className="text-sm w-48 font-sans">
-                      <p className="font-semibold mb-1 text-neutral-800">{idx === 0 ? 'Titik Asal' : 'Titik Tujuan'}</p>
-                      <p className="text-neutral-600 line-clamp-3 leading-tight">{pt.display_name}</p>
-                    </div>
-                  </Popup>
-                </Marker>
-              ))}
-              
-              {/* Radius Tracking */}
-              {showRadius && points.length > 0 && (
-                <Circle 
-                  center={[points[0].lat, points[0].lon]} 
-                  radius={distanceUnit === 'km' ? radiusValue * 1000 : radiusValue} 
-                  pathOptions={{ color: '#3b82f6', fillColor: '#3b82f6', fillOpacity: 0.15, weight: 2, dashArray: '6, 6' }} 
-                />
-              )}
+          {/* Leaflet Map Component */}
+          <MapContainer
+            center={schoolCoordinate ? [schoolCoordinate.lat, schoolCoordinate.lon] : [-8.656554, 115.219518]}
+            zoom={14}
+            scrollWheelZoom={true}
+            className={cn("w-full h-full flex-1 z-0", pickingTarget ? "cursor-crosshair" : "")}
+            zoomControl={false}
+          >
+            {mapType === 'satellite' ? (
+              <TileLayer
+                attribution='Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP'
+                url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+                maxZoom={19}
+              />
+            ) : (
+              <TileLayer
+                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                maxZoom={19}
+              />
+            )}
 
-              {/* Highlighted Regional Places */}
-              {showRadius && nearbyPlaces.map(place => (
-                <CircleMarker 
-                  key={place.id} 
-                  center={[place.lat, place.lon]} 
-                  radius={5} 
-                  pathOptions={{ color: '#ffffff', weight: 1.5, fillColor: '#8b5cf6', fillOpacity: 0.9 }}
+            {/* School Marker (Point A) */}
+            {schoolCoordinate && (
+              <Marker position={[schoolCoordinate.lat, schoolCoordinate.lon]} icon={schoolIcon}>
+                <Tooltip permanent direction="top" offset={[0, -22]} className="bg-white/95 text-slate-900 font-bold text-xs px-2.5 py-1 rounded shadow-md border-none">
+                  {schoolCoordinate.display_name}
+                </Tooltip>
+                <Popup>
+                  <div className="text-xs">
+                    <p className="font-bold text-red-600 mb-1">Titik Sekolah (A)</p>
+                    <p className="font-semibold text-slate-800">{schoolCoordinate.display_name}</p>
+                    <p className="text-[10px] text-slate-500 mt-1 font-mono">
+                      {schoolCoordinate.lat.toFixed(6)}, {schoolCoordinate.lon.toFixed(6)}
+                    </p>
+                  </div>
+                </Popup>
+              </Marker>
+            )}
+
+            {/* Home Marker (Point B) */}
+            {homePoint && (
+              <Marker position={[homePoint.lat, homePoint.lon]} icon={homeIcon}>
+                <Tooltip permanent direction="top" offset={[0, -22]} className="bg-white/95 text-slate-900 font-bold text-xs px-2.5 py-1 rounded shadow-md border-none">
+                  {studentName ? studentName : 'Rumah Siswa'}
+                </Tooltip>
+                <Popup>
+                  <div className="text-xs">
+                    <p className="font-bold text-emerald-600 mb-1">Titik Tempat Tinggal (B)</p>
+                    <p className="font-semibold text-slate-800">{studentName || 'Calon Siswa'}</p>
+                    <p className="text-slate-600 mt-1">{homePoint.display_name}</p>
+                    <p className="text-[10px] text-slate-500 mt-1 font-mono">
+                      {homePoint.lat.toFixed(6)}, {homePoint.lon.toFixed(6)}
+                    </p>
+                  </div>
+                </Popup>
+              </Marker>
+            )}
+
+            {/* Connecting Line Between School and Home */}
+            {schoolCoordinate && homePoint && (
+              <Polyline
+                positions={[
+                  [schoolCoordinate.lat, schoolCoordinate.lon],
+                  [homePoint.lat, homePoint.lon]
+                ]}
+                color="#3b82f6"
+                weight={3.5}
+                dashArray="8, 8"
+                opacity={0.85}
+              />
+            )}
+
+            {/* Multi-Radius Circles centered at School (Tembus Klik agar tidak memblokir Banjar) */}
+            {schoolCoordinate &&
+              showRadiusRings &&
+              activeRadiusList.map((radius, idx) => {
+                const colors = RADIUS_COLORS[idx % RADIUS_COLORS.length];
+                return (
+                  <Circle
+                    key={radius}
+                    center={[schoolCoordinate.lat, schoolCoordinate.lon]}
+                    radius={radius}
+                    interactive={false}
+                    pathOptions={{
+                      color: colors.stroke,
+                      fillColor: colors.fill,
+                      fillOpacity: 0.04,
+                      weight: 2,
+                      dashArray: '5, 5',
+                      interactive: false
+                    }}
+                  />
+                );
+              })}
+
+            {/* Titik Seluruh Banjar / Wilayah di Dalam Radius dengan Tooltips & Area Sentuh Responsif */}
+            {showRadiusRings &&
+              visibleBanjars.map((bj) => (
+                <CircleMarker
+                  key={bj.id}
+                  center={[bj.lat, bj.lon]}
+                  radius={7.5}
+                  pane="markerPane"
+                  eventHandlers={{
+                    click: () => {
+                      setSelectedBanjarPopup(bj);
+                    }
+                  }}
+                  pathOptions={{
+                    color: '#ffffff',
+                    weight: 2,
+                    fillColor: '#7c3aed',
+                    fillOpacity: 0.95
+                  }}
                 >
-                  <Tooltip direction="top" offset={[0, -10]} opacity={1}>
-                    <div className="font-sans text-xs">
-                      <span className="font-bold text-slate-800">{place.name}</span>
-                      <br/>
-                      <span className="text-slate-500 text-[10px] uppercase font-semibold tracking-wider hover:text-slate-700">
-                        {placeTypeMap[place.type] || place.type}
-                        {place.distanceKm !== undefined && (
-                          <span className="ml-2 px-1.5 py-0.5 rounded-md bg-white/10 border border-slate-300/20 text-slate-700 font-bold self-center">
-                            {(distanceUnit === 'km' ? place.distanceKm : place.distanceKm * 1000).toLocaleString('id-ID', { maximumFractionDigits: 2 })} {distanceUnit.toUpperCase()}
-                          </span>
-                        )}
-                      </span>
+                  <Tooltip direction="top" offset={[0, -9]} opacity={0.95}>
+                    <div className="text-xs font-sans text-slate-900 py-0.5">
+                      <p className="font-bold text-slate-900">{bj.name}</p>
+                      <p className="text-[10px] text-slate-500">{bj.village ? `${bj.village}, ` : ''}{bj.subdistrict}</p>
+                      <p className="text-[10px] text-purple-700 font-semibold font-mono mt-0.5">
+                        Jarak: {Math.round(bj.distanceMeters || 0).toLocaleString('id-ID')} m ({(bj.distanceKm || 0).toFixed(2)} km)
+                      </p>
                     </div>
                   </Tooltip>
                 </CircleMarker>
               ))}
 
-              <MapUpdater points={points} />
-              <MapClickHandler 
-                isActive={selectingTarget !== null} 
-                onLocationSelected={(coord) => {
-                  if (selectingTarget === 'loc1') {
-                    setSelectedLoc1(coord);
-                    setLoc1(coord.display_name);
-                  } else if (selectingTarget === 'loc2') {
-                    setSelectedLoc2(coord);
-                    setLoc2(coord.display_name);
-                  }
-                  setSelectingTarget(null);
-                  setTimeout(() => document.getElementById('control-panel')?.scrollIntoView({ behavior: 'smooth' }), 100);
-                }} 
-              />
-            </MapContainer>
-          </div>
-        </main>
-
-        {/* Footer Info */}
-        <footer className={cn("px-6 lg:px-8 py-4 border-t flex flex-col sm:flex-row justify-between items-center z-10 shrink-0 gap-3 sm:gap-0 mt-auto transition-colors", isDark ? "bg-black/40 border-white/5" : "bg-slate-100/50 border-slate-200")}>
-          <div className="flex flex-wrap justify-center sm:justify-start items-center gap-2 sm:gap-4 text-[10px] text-slate-500">
-            <div className="flex items-center gap-1.5">
-              <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.8)]"></span>
-              Sistem Geocoding Aktif
-            </div>
-            <div className={cn("hidden sm:block", isDark ? "text-white/20" : "text-slate-300")}>|</div>
-            <div>Provider: Nominatim OSM</div>
-            <div className={cn("hidden sm:block", isDark ? "text-white/20" : "text-slate-300")}>|</div>
-            <div>Datum: WGS84</div>
-          </div>
-          <div className={cn("text-[10px] italic text-center sm:text-right max-w-sm", isDark ? "text-slate-400/70" : "text-slate-500")}>
-            *Jarak dihitung menggunakan formula Haversine untuk akurasi kelengkungan bumi.
-          </div>
-        </footer>
-        {/* Modals */}
-        {showHistory && (
-          <div className="fixed inset-0 z-[500] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-            <div className={cn("border p-6 rounded-2xl max-w-md w-full shadow-2xl flex flex-col max-h-[80vh]", isDark ? "bg-slate-900 border-white/10" : "bg-white border-slate-200")}>
-              <h2 className={cn("text-xl font-bold mb-4 shrink-0", isDark ? "text-white" : "text-slate-900")}>Riwayat Analisis</h2>
-              
-              <div className="flex-1 overflow-y-auto mb-6 pr-2 space-y-3 hide-scrollbar">
-                {history.length === 0 ? (
-                  <p className={cn("text-sm", isDark ? "text-slate-400" : "text-slate-500")}>Belum ada riwayat tersimpan untuk sesi ini.</p>
-                ) : (
-                  history.map(item => (
-                    <div key={item.id} className={cn("p-3 rounded-xl border text-sm", isDark ? "bg-black/20 border-white/5" : "bg-slate-50 border-slate-200")}>
-                      <div className="flex justify-between items-start mb-1">
-                        <span className={cn("font-bold", item.type === 'distance' ? "text-blue-500" : "text-emerald-500")}>
-                          {item.type === 'distance' ? 'Hitung Jarak' : 'Area Radius'}
-                        </span>
-                        <span className={cn("text-[10px]", isDark ? "text-slate-500" : "text-slate-400")}>
-                          {new Date(item.timestamp).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
-                        </span>
-                      </div>
-                      <p className={cn("font-medium mb-1", isDark ? "text-slate-200" : "text-slate-700")}>{item.summary}</p>
-                      <p className={isDark ? "text-slate-400" : "text-slate-500"}>{item.details}</p>
-                      {item.places && item.places.length > 0 && (
-                        <div className="mt-2 pt-2 border-t border-white/5 space-y-1">
-                          <div className={cn("text-[10px] uppercase font-bold mb-1", isDark ? "text-slate-500" : "text-slate-400")}>Daftar Wilayah:</div>
-                          <div className="max-h-32 overflow-y-auto pr-1 hide-scrollbar space-y-1 text-xs">
-                            {item.places.map((p, idx) => (
-                              <div key={idx} className="flex justify-between items-center bg-black/10 px-2 py-1.5 rounded">
-                                <span className={cn("truncate mr-2", isDark ? "text-slate-300" : "text-slate-600")}>{p.name}</span>
-                                <span className={cn("font-mono text-[10px] whitespace-nowrap", isDark ? "text-blue-400" : "text-blue-600")}>{p.dist}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
+            {/* Popup Detail Banjar Terpilih (Responsif Klik Langsung maupun Proximity Snap) */}
+            {selectedBanjarPopup && (
+              <Popup
+                position={[selectedBanjarPopup.lat, selectedBanjarPopup.lon]}
+                onClose={() => setSelectedBanjarPopup(null)}
+                autoPan={true}
+              >
+                <div className="p-1 min-w-[230px] font-sans">
+                  <div className="flex items-center gap-1.5 border-b pb-2 mb-2 border-slate-200">
+                    <Building className="w-4 h-4 text-purple-600 shrink-0" />
+                    <div>
+                      <h4 className="font-bold text-sm text-slate-900 leading-tight">
+                        {selectedBanjarPopup.name}
+                      </h4>
+                      <p className="text-[10px] text-slate-500">
+                        {selectedBanjarPopup.village ? `${selectedBanjarPopup.village}, ` : ''}{selectedBanjarPopup.subdistrict}
+                      </p>
                     </div>
-                  ))
-                )}
-              </div>
+                  </div>
+                  
+                  <div className="p-2 rounded-lg bg-purple-50 border border-purple-100 text-xs text-purple-900 space-y-1 mb-3">
+                    <div className="flex justify-between items-center text-[11px]">
+                      <span className="text-purple-600 font-medium">Jarak ke Sekolah:</span>
+                      <span className="font-bold font-mono text-purple-800">
+                        {Math.round(selectedBanjarPopup.distanceMeters || 0).toLocaleString('id-ID')} meter
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center text-[10px] text-purple-500">
+                      <span>Jarak Kilometrik:</span>
+                      <span className="font-mono font-semibold">
+                        {(selectedBanjarPopup.distanceKm || 0).toFixed(2)} km
+                      </span>
+                    </div>
+                  </div>
 
-              <button 
-                onClick={() => setShowHistory(false)}
-                className="w-full shrink-0 bg-blue-600 hover:bg-blue-500 text-white font-semibold py-2.5 rounded-lg transition-colors"
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setHomePoint({
+                        lat: selectedBanjarPopup.lat,
+                        lon: selectedBanjarPopup.lon,
+                        display_name: `${selectedBanjarPopup.name}, ${selectedBanjarPopup.village ? `${selectedBanjarPopup.village}, ` : ''}${selectedBanjarPopup.subdistrict}, Kota Denpasar`
+                      });
+                      setHomeAddress(`${selectedBanjarPopup.name}, ${selectedBanjarPopup.subdistrict}`);
+                      setSelectedBanjarPopup(null);
+                    }}
+                    className="w-full py-1.5 px-3 bg-purple-600 hover:bg-purple-700 active:scale-[0.98] text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                  >
+                    <Home className="w-3.5 h-3.5" />
+                    <span>Set Sebagai Rumah Siswa</span>
+                  </button>
+                </div>
+              </Popup>
+            )}
+
+            <MapViewController schoolPoint={schoolCoordinate} homePoint={homePoint} />
+            <MapClickHandler
+              isActive={pickingTarget !== null}
+              onPick={handleMapPick}
+              banjars={showRadiusRings ? visibleBanjars : []}
+              onSelectBanjar={(b) => setSelectedBanjarPopup(b)}
+            />
+          </MapContainer>
+        </div>
+      </main>
+
+      {/* History Modal */}
+      {showHistoryModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className={cn("border rounded-2xl max-w-xl w-full shadow-2xl flex flex-col max-h-[85vh] overflow-hidden", isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200")}>
+            <div className="p-4 border-b flex items-center justify-between border-slate-200 dark:border-slate-800">
+              <div className="flex items-center gap-2">
+                <History className="w-5 h-5 text-blue-500" />
+                <h3 className="font-bold text-base">Riwayat Verifikasi Jarak Siswa</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowHistoryModal(false)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-4 flex-1 overflow-y-auto space-y-3">
+              {historyList.length === 0 ? (
+                <div className="py-12 text-center text-slate-500 text-sm">
+                  Belum ada riwayat verifikasi yang tersimpan di browser ini.
+                </div>
+              ) : (
+                historyList.map((item) => (
+                  <div
+                    key={item.id}
+                    className={cn("p-3.5 rounded-xl border flex items-center justify-between gap-4 text-xs transition-colors", isDark ? "bg-slate-950/40 border-slate-800 hover:border-slate-700" : "bg-slate-50 border-slate-200 hover:border-slate-300")}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="font-bold text-slate-900 dark:text-slate-100 truncate">{item.studentName}</span>
+                        {item.candidateNumber && (
+                          <span className="font-mono text-[10px] text-slate-400">NISN: {item.candidateNumber}</span>
+                        )}
+                      </div>
+                      <p className="text-slate-500 truncate">Sekolah: {item.schoolName}</p>
+                      <p className="text-slate-500 truncate">Domisili: {item.homeAddress}</p>
+                      <div className="flex items-center gap-3 mt-1.5 text-[11px]">
+                        <span className="font-mono font-bold text-blue-600 dark:text-blue-400">
+                          {Math.round(item.distanceMeters).toLocaleString('id-ID')} m ({item.distanceKm.toFixed(2)} km)
+                        </span>
+                        <span className="text-slate-400">&bull;</span>
+                        <span className="text-slate-400">{new Date(item.createdAt).toLocaleDateString('id-ID')}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => loadHistoryItem(item)}
+                        className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-semibold text-xs transition-colors"
+                      >
+                        Buka
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const updated = HistoryStorage.delete(item.id);
+                          setHistoryList(updated);
+                        }}
+                        className="p-1.5 hover:bg-red-500/10 text-red-500 rounded-lg transition-colors"
+                        title="Hapus"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="p-4 border-t flex items-center justify-between border-slate-200 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => {
+                  HistoryStorage.clearAll();
+                  setHistoryList([]);
+                }}
+                disabled={historyList.length === 0}
+                className="text-xs text-red-500 hover:text-red-600 font-semibold disabled:opacity-40"
+              >
+                Hapus Semua Riwayat
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowHistoryModal(false)}
+                className="px-4 py-2 bg-slate-200 dark:bg-slate-800 rounded-lg text-xs font-semibold hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors"
               >
                 Tutup
               </button>
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
+
+      {/* Print Slip Modal (Cetak Bukti Verifikasi Jarak SPMB) */}
+      {showPrintModal && distanceData && selectedSchool && homePoint && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm print:p-0 print:bg-white print:fixed print:inset-0">
+          <div className="bg-white text-slate-900 border border-slate-300 rounded-2xl max-w-2xl w-full p-6 shadow-2xl flex flex-col gap-5 print:border-none print:shadow-none print:w-full print:max-w-none">
+            
+            {/* Header Slip */}
+            <div className="border-b-2 border-slate-900 pb-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 bg-slate-900 text-white rounded-xl flex items-center justify-center font-bold text-xl">
+                  SPMB
+                </div>
+                <div>
+                  <h2 className="text-base font-bold uppercase tracking-wide">
+                    Surat Hasil Verifikasi Jarak Udara (Jalur Zonasi)
+                  </h2>
+                  <p className="text-xs text-slate-600">
+                    Sistem Pengukuran Koordinat Geodesik WGS84 Resmi
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowPrintModal(false)}
+                className="print:hidden text-slate-400 hover:text-slate-700 p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Content Table */}
+            <div className="space-y-4 text-xs">
+              <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                <div>
+                  <p className="text-[10px] uppercase font-bold text-slate-500">Nama Calon Siswa</p>
+                  <p className="font-bold text-sm text-slate-900">{studentName || 'Calon Siswa'}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase font-bold text-slate-500">Nomor Induk / Peserta (NISN)</p>
+                  <p className="font-mono font-bold text-sm text-slate-900">{candidateNumber || '-'}</p>
+                </div>
+              </div>
+
+              <div className="border rounded-xl divide-y border-slate-200">
+                <div className="p-3 flex justify-between">
+                  <span className="font-semibold text-slate-600">Sekolah Tujuan</span>
+                  <span className="font-bold text-right">{selectedSchool.name}</span>
+                </div>
+                <div className="p-3 flex justify-between">
+                  <span className="font-semibold text-slate-600">Koordinat Sekolah</span>
+                  <span className="font-mono text-right">{selectedSchool.lat.toFixed(6)}, {selectedSchool.lon.toFixed(6)}</span>
+                </div>
+                <div className="p-3 flex justify-between">
+                  <span className="font-semibold text-slate-600">Alamat Tempat Tinggal (KK)</span>
+                  <span className="font-medium text-right max-w-xs">{homePoint.display_name}</span>
+                </div>
+                <div className="p-3 flex justify-between">
+                  <span className="font-semibold text-slate-600">Koordinat Domisili Siswa</span>
+                  <span className="font-mono text-right">{homePoint.lat.toFixed(6)}, {homePoint.lon.toFixed(6)}</span>
+                </div>
+                <div className="p-3.5 bg-blue-50/70 flex justify-between items-center">
+                  <span className="font-bold text-slate-900">Total Jarak Garis Lurus (Udara)</span>
+                  <div className="text-right">
+                    <span className="text-xl font-black font-mono text-blue-700">
+                      {distanceData.formattedMeters} Meter
+                    </span>
+                    <span className="text-xs text-slate-500 block">
+                      ({distanceData.formattedKm} km)
+                    </span>
+                  </div>
+                </div>
+                <div className="p-3 flex justify-between items-center">
+                  <span className="font-semibold text-slate-600">Status Kelayakan Zonasi</span>
+                  <span className="font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded border border-emerald-200">
+                    {zoningStatus?.title}
+                  </span>
+                </div>
+              </div>
+
+              <div className="text-[11px] text-slate-500 italic leading-relaxed pt-2">
+                *Dokumen hasil kalkulasi ini diukur menggunakan model geodesik matematis koordinat bumi WGS84 untuk keperluan verifikasi berkas penerimaan murid baru.
+              </div>
+            </div>
+
+            {/* Print Buttons */}
+            <div className="border-t pt-4 flex justify-end gap-3 print:hidden">
+              <button
+                type="button"
+                onClick={() => setShowPrintModal(false)}
+                className="px-4 py-2 border rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-semibold shadow-md flex items-center gap-2 transition-all"
+              >
+                <Printer className="w-4 h-4" />
+                Cetak / Simpan PDF
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Footer */}
+      <footer className={cn("px-6 py-3.5 border-t text-xs flex flex-col sm:flex-row items-center justify-between gap-2 transition-colors", isDark ? "bg-[#0A0C10] border-slate-800 text-slate-500" : "bg-white border-slate-200 text-slate-500")}>
+        <div className="flex items-center gap-3">
+          <span>SkyDist Pro &bull; Versi SPMB & PPDB Zonasi Denpasar</span>
+          <span>&bull;</span>
+          <span>Datum: WGS84</span>
+        </div>
+        <div className="text-slate-400 text-[11px]">
+          Kalkulasi multi-radius zonasi presisi tinggi &bull; Memuat seluruh Banjar, Dusun & Kelurahan Kota Denpasar
+        </div>
+      </footer>
     </div>
   );
 }
